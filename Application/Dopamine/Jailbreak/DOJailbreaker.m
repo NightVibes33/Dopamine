@@ -23,6 +23,7 @@
 #import <libjailbreak/info.h>
 #import <libjailbreak/util.h>
 #import <libjailbreak/trustcache.h>
+#import <libjailbreak/trustcache_fs.h>
 #import <libjailbreak/kalloc_pt.h>
 #import <libjailbreak/jbserver_boomerang.h>
 #import <libjailbreak/signatures.h>
@@ -80,14 +81,16 @@ typedef NS_ENUM(NSInteger, JBErrorCode) {
             "physmap",
             "struct",
             "physrw",
-            "perfkrw",
+            NULL,
             NULL,
             NULL,
             NULL,
             NULL,
         };
 
-        uint32_t idx = 7;
+        uint32_t idx = 0;
+        while(sets[++idx]);
+
         if (xpf_set_is_supported("devmode")) {
             sets[idx++] = "devmode"; 
         }
@@ -96,6 +99,9 @@ typedef NS_ENUM(NSInteger, JBErrorCode) {
         }
         if (xpf_set_is_supported("arm64kcall")) {
             sets[idx++] = "arm64kcall"; 
+        }
+        if (xpf_set_is_supported("perfkrw")) {
+            sets[idx++] = "perfkrw";
         }
 
         _systemInfoXdict = xpf_construct_offset_dictionary((const char **)sets);
@@ -208,6 +214,7 @@ typedef NS_ENUM(NSInteger, JBErrorCode) {
 {
     int r = [[DOExploitManager sharedManager] cleanUpExploits];
     if (r != 0) return [NSError errorWithDomain:JBErrorDomain code:JBErrorCodeFailedCleanup userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"Failed to cleanup exploits: %d", r]}];
+    IOSurface_map_cleanup();
     return nil;
 }
 
@@ -485,6 +492,26 @@ void *boomerang_server(struct boomerang_info *info)
     return [[DOEnvironmentManager sharedManager] finalizeBootstrap];
 }
 
+- (NSError *)cleanUpPostExploitation
+{
+    if (@available(iOS 17.0, *)) {
+        uint64_t proc = proc_self();
+        uint64_t ucred = proc_ucred(proc);
+
+        // Get uid 0
+        kwrite32(ucred + koffsetof(ucred, svuid), 501);
+        kwrite32(ucred + koffsetof(ucred, ruid), 501);
+        kwrite32(ucred + koffsetof(ucred, uid), 501);
+        
+        // Get gid 0
+        kwrite32(ucred + koffsetof(ucred, rgid), 501);
+        kwrite32(ucred + koffsetof(ucred, svgid), 501);
+        kwrite32(ucred + koffsetof(ucred, groups), 501);
+    }
+
+    return nil;
+}
+
 - (void)runWithError:(NSError **)errOut didRemoveJailbreak:(BOOL*)didRemove showLogs:(BOOL *)showLogs
 {
     BOOL removeJailbreakEnabled = [[DOPreferenceManager sharedManager] boolPreferenceValueForKey:@"removeJailbreakEnabled" fallback:NO];
@@ -551,7 +578,7 @@ void *boomerang_server(struct boomerang_info *info)
     [[DOUIManager sharedInstance] sendLog:DOLocalizedString(@"Loading BaseBin TrustCache") debug:NO];
     *errOut = [self loadBasebinTrustcache];
     if (*errOut) return;
-    
+
     [[DOUIManager sharedInstance] sendLog:DOLocalizedString(@"Initializing Environment") debug:NO];
     *errOut = [self injectLaunchdHook];
     if (*errOut) return;
@@ -581,8 +608,11 @@ void *boomerang_server(struct boomerang_info *info)
         *showLogs = NO;
         return;
     }
-    
+    *errOut = [self cleanUpPostExploitation];
+
+
     //printf("Starting launch daemons...\n");
+    //exec_cmd_trusted(JBROOT_PATH("/usr/bin/uicache"), "-a", NULL);
     //exec_cmd_trusted(JBROOT_PATH("/usr/bin/launchctl"), "bootstrap", "system", JBROOT_PATH("/Library/LaunchDaemons"), NULL);
     //exec_cmd_trusted(JBROOT_PATH("/usr/bin/launchctl"), "bootstrap", "system", JBROOT_PATH("/basebin/LaunchDaemons"), NULL);
     // Note: This causes the app to freeze in some instances due to launchd only having physrw_pte, we might want to only do it when neccessary
