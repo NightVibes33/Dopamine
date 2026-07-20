@@ -7,7 +7,6 @@ on:
       - research/ipad5-darksword
     paths:
       - "research/ipad5_darksword_patch.py"
-      - "research/ipad5_visual_logging_patch.py"
       - ".github/workflows/ipad5-darksword.yml"
       - "Application/**"
       - "BaseBin/**"
@@ -16,14 +15,13 @@ on:
       - 2.x
     paths:
       - "research/ipad5_darksword_patch.py"
-      - "research/ipad5_visual_logging_patch.py"
       - ".github/workflows/ipad5-darksword.yml"
       - "Application/**"
       - "BaseBin/**"
 
 concurrency:
-  group: ipad5-darksword-${{ github.ref }}
-  cancel-in-progress: true
+  group: ipad5-darksword-${{ github.workflow }}-${{ github.sha }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -37,20 +35,17 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Apply iPad 5 DarkSword patches
+      - name: Apply iPad 5 DarkSword patch
         run: |
           set -euxo pipefail
           python3 research/ipad5_darksword_patch.py
-          python3 research/ipad5_visual_logging_patch.py
-          python3 - <<'PY'
-          from pathlib import Path
-          path = Path("Application/Dopamine/Exploits/DarkSword/DarkSword.m")
-          text = path.read_text(encoding="utf-8").replace("%,llu", "%llu")
-          path.write_text(text, encoding="utf-8")
-          PY
           git diff --check
-          grep -nE 'ipad5_visual_log|freopen|pointer_mask' Application/Dopamine/Exploits/DarkSword/DarkSword.m || true
-          git diff -- Application/Dopamine/Exploits/DarkSword/DarkSword.m
+          grep -nE 'ipad5_log_stage|freopen|kernel-base-scan|primitive-ready' Application/Dopamine/Exploits/DarkSword/DarkSword.m || true
+          if grep -n 'freopen' Application/Dopamine/Exploits/DarkSword/DarkSword.m; then
+            echo '::error::DarkSword still redirects stdout; live console would freeze'
+            exit 1
+          fi
+          git diff -- Application/Dopamine/Exploits/DarkSword/DarkSword.m Application/Dopamine/Jailbreak/DOJailbreaker.m
 
       - name: Xcode Setup
         uses: maxim-lobanov/setup-xcode@v1
@@ -118,6 +113,6 @@ jobs:
       - name: Upload diagnostic IPA
         uses: actions/upload-artifact@v4
         with:
-          name: Dopamine-iPad5-DarkSword-VisualLogs
+          name: Dopamine-iPad5-DarkSword-LiveLogs
           path: Application/Dopamine.ipa
           if-no-files-found: error
