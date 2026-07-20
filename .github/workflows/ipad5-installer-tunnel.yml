@@ -7,6 +7,11 @@ on:
       - research/ipad5-darksword
     paths:
       - ".github/workflows/ipad5-installer-tunnel.yml"
+  pull_request:
+    branches:
+      - 2.x
+    paths:
+      - ".github/workflows/ipad5-installer-tunnel.yml"
 
 permissions:
   actions: read
