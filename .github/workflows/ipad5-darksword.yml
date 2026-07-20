@@ -39,10 +39,27 @@ jobs:
         run: |
           set -euxo pipefail
           python3 research/ipad5_darksword_patch.py
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("Application/Dopamine/Exploits/DarkSword/DarkSword.m")
+          source = path.read_text()
+          old = '''    if (r != 0) {
+                  printf("[-] socket info syscall failed: %d\\n", r);'''
+          new = '''    if (r < 0) {
+                  printf("[-] socket info syscall failed: %d\\n", r);'''
+          if source.count(old) != 1:
+              raise RuntimeError(f"proc_info hotfix expected one match, found {source.count(old)}")
+          path.write_text(source.replace(old, new, 1))
+          PY
           git diff --check
-          grep -nE 'ipad5_log_stage|freopen|kernel-base-scan|primitive-ready' Application/Dopamine/Exploits/DarkSword/DarkSword.m || true
+          grep -nE 'ipad5_log_stage|freopen|kernel-base-scan|primitive-ready|if \(r < 0\)' Application/Dopamine/Exploits/DarkSword/DarkSword.m || true
           if grep -nE 'freopen[[:space:]]*\(' Application/Dopamine/Exploits/DarkSword/DarkSword.m; then
             echo '::error::DarkSword still redirects stdout; live console would freeze'
+            exit 1
+          fi
+          if ! grep -q 'if (r < 0)' Application/Dopamine/Exploits/DarkSword/DarkSword.m; then
+            echo '::error::proc_info success handling hotfix was not applied'
             exit 1
           fi
           git diff -- Application/Dopamine/Exploits/DarkSword/DarkSword.m Application/Dopamine/Jailbreak/DOJailbreaker.m
