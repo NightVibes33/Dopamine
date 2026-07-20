@@ -1,0 +1,107 @@
+name: "Dopamine: iPad 5 StockBaseline installer"
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - research/ipad5-darksword
+    paths:
+      - ".github/workflows/ipad5-installer-tunnel.yml"
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  serve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    env:
+      SOURCE_RUN_ID: "29751773746"
+      SOURCE_ARTIFACT: "Dopamine-iPad5-DarkSword-StockBaseline"
+    steps:
+      - name: Download verified StockBaseline IPA
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          mkdir -p payload site/complete
+          gh run download "$SOURCE_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "$SOURCE_ARTIFACT" \
+            --dir payload
+          test -s payload/Dopamine.ipa
+          cp payload/Dopamine.ipa site/Dopamine-iPad5-DarkSword-StockBaseline.ipa
+          shasum -a 256 site/Dopamine-iPad5-DarkSword-StockBaseline.ipa | tee site/SHA256.txt
+
+      - name: Create installer page
+        run: |
+          cat > site/complete/index.html <<'HTML'
+          <!doctype html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width,initial-scale=1">
+            <title>Dopamine iPad 5 StockBaseline</title>
+            <style>
+              :root { color-scheme: dark; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif; }
+              body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #08090d; color: #f7f7fa; }
+              main { width: min(88vw, 430px); padding: 30px; border: 1px solid #2a2d38; border-radius: 24px; background: #12141b; box-shadow: 0 20px 70px #0008; }
+              h1 { margin: 0 0 10px; font-size: 27px; }
+              p { color: #b8bdca; line-height: 1.5; }
+              .tag { display: inline-block; margin: 8px 0 22px; padding: 7px 11px; border-radius: 999px; background: #202532; font: 600 13px ui-monospace, monospace; }
+              a.button { display: block; padding: 15px 18px; border-radius: 14px; text-align: center; text-decoration: none; font-weight: 750; background: #f4f5f8; color: #0a0b0e; }
+              small { display: block; margin-top: 18px; color: #747b8c; overflow-wrap: anywhere; }
+            </style>
+          </head>
+          <body>
+            <main>
+              <h1>Dopamine iPad 5</h1>
+              <p>Verified DarkSword stock-parameter diagnostic baseline.</p>
+              <span class="tag">StockBaseline · 5ea434e</span>
+              <a class="button" href="../Dopamine-iPad5-DarkSword-StockBaseline.ipa">Download newest IPA</a>
+              <small>Artifact: Dopamine-iPad5-DarkSword-StockBaseline</small>
+            </main>
+          </body>
+          </html>
+          HTML
+
+      - name: Start installer and Cloudflare tunnel
+        run: |
+          set -euxo pipefail
+          python3 -m http.server 8080 --directory site > http-server.log 2>&1 &
+          SERVER_PID=$!
+
+          curl -fsSL \
+            https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
+            -o cloudflared
+          chmod +x cloudflared
+          ./cloudflared tunnel --url http://127.0.0.1:8080 --no-autoupdate > cloudflared.log 2>&1 &
+          TUNNEL_PID=$!
+
+          URL=""
+          for _ in $(seq 1 90); do
+            URL=$(grep -Eo 'https://[-a-z0-9]+\.trycloudflare\.com' cloudflared.log | head -n 1 || true)
+            if [ -n "$URL" ]; then
+              break
+            fi
+            sleep 2
+          done
+
+          if [ -z "$URL" ]; then
+            cat cloudflared.log
+            exit 1
+          fi
+
+          echo "INSTALLER_URL=$URL/complete"
+          echo "IPA_URL=$URL/Dopamine-iPad5-DarkSword-StockBaseline.ipa"
+          echo "## iPad 5 StockBaseline installer" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Installer: $URL/complete" >> "$GITHUB_STEP_SUMMARY"
+          echo "- IPA: $URL/Dopamine-iPad5-DarkSword-StockBaseline.ipa" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Source commit: 5ea434e0f63cca7d4feb4aaecc244ac7c5ca5cfd" >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice title=StockBaseline installer::$URL/complete"
+
+          while kill -0 "$SERVER_PID" 2>/dev/null && kill -0 "$TUNNEL_PID" 2>/dev/null; do
+            sleep 30
+          done
