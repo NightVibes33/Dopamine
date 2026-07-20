@@ -35,6 +35,6 @@ jobs:
           else
             cp logs.bin build.log
           fi
-          echo "DIAGNOSTIC_TAIL_BEGIN"
-          tail -n 180 build.log | cut -c1-1800
-          echo "DIAGNOSTIC_TAIL_END"
+          echo "DIAGNOSTIC_ERROR_BEGIN"
+          grep -Ei 'git diff --check|whitespace|freopen|DarkSword still redirects|Traceback|RuntimeError|expected exactly|error:|fatal:|Process completed with exit code|Patched Application' build.log | tail -n 120 | cut -c1-1800 || true
+          echo "DIAGNOSTIC_ERROR_END"
