@@ -7,7 +7,6 @@ on:
     paths:
       - ".github/workflows/ipad5-darksword-observer.yml"
       - ".github/workflows/ipad5-darksword.yml"
-      - "research/ipad5_visual_logging_patch.py"
       - "research/ipad5_darksword_patch.py"
 
 permissions:
@@ -36,6 +35,6 @@ jobs:
           else
             cp logs.bin build.log
           fi
-          echo "DIAGNOSTIC_ERROR_BEGIN"
-          grep -Ei 'Traceback|RuntimeError|expected exactly|Added visible|Patched .*DarkSword|Process completed with exit code' build.log | tail -n 80 || true
-          echo "DIAGNOSTIC_ERROR_END"
+          echo "DIAGNOSTIC_TAIL_BEGIN"
+          tail -n 180 build.log | cut -c1-1800
+          echo "DIAGNOSTIC_TAIL_END"
