@@ -41,7 +41,7 @@ jobs:
           python3 research/ipad5_darksword_patch.py
           git diff --check
           grep -nE 'ipad5_log_stage|freopen|kernel-base-scan|primitive-ready' Application/Dopamine/Exploits/DarkSword/DarkSword.m || true
-          if grep -n 'freopen' Application/Dopamine/Exploits/DarkSword/DarkSword.m; then
+          if grep -nE 'freopen[[:space:]]*\(' Application/Dopamine/Exploits/DarkSword/DarkSword.m; then
             echo '::error::DarkSword still redirects stdout; live console would freeze'
             exit 1
           fi
