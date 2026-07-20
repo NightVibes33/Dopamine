@@ -7,6 +7,7 @@ on:
       - research/ipad5-darksword
     paths:
       - "research/ipad5_darksword_patch.py"
+      - "research/ipad5_visual_logging_patch.py"
       - ".github/workflows/ipad5-darksword.yml"
       - "Application/**"
       - "BaseBin/**"
@@ -15,6 +16,7 @@ on:
       - 2.x
     paths:
       - "research/ipad5_darksword_patch.py"
+      - "research/ipad5_visual_logging_patch.py"
       - ".github/workflows/ipad5-darksword.yml"
       - "Application/**"
       - "BaseBin/**"
@@ -35,11 +37,19 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Apply iPad 5 DarkSword patch
+      - name: Apply iPad 5 DarkSword patches
         run: |
           set -euxo pipefail
           python3 research/ipad5_darksword_patch.py
+          python3 research/ipad5_visual_logging_patch.py
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("Application/Dopamine/Exploits/DarkSword/DarkSword.m")
+          text = path.read_text(encoding="utf-8").replace("%,llu", "%llu")
+          path.write_text(text, encoding="utf-8")
+          PY
           git diff --check
+          grep -nE 'ipad5_visual_log|freopen|pointer_mask' Application/Dopamine/Exploits/DarkSword/DarkSword.m || true
           git diff -- Application/Dopamine/Exploits/DarkSword/DarkSword.m
 
       - name: Xcode Setup
@@ -108,6 +118,6 @@ jobs:
       - name: Upload diagnostic IPA
         uses: actions/upload-artifact@v4
         with:
-          name: Dopamine-iPad5-DarkSword
+          name: Dopamine-iPad5-DarkSword-VisualLogs
           path: Application/Dopamine.ipa
           if-no-files-found: error
