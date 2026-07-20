@@ -10,6 +10,14 @@ on:
       - ".github/workflows/ipad5-darksword.yml"
       - "Application/**"
       - "BaseBin/**"
+  pull_request:
+    branches:
+      - 2.x
+    paths:
+      - "research/ipad5_darksword_patch.py"
+      - ".github/workflows/ipad5-darksword.yml"
+      - "Application/**"
+      - "BaseBin/**"
 
 concurrency:
   group: ipad5-darksword-${{ github.ref }}
