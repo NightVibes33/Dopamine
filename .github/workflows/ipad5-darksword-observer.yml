@@ -1,0 +1,41 @@
+name: "Dopamine: iPad 5 build observer"
+
+on:
+  pull_request:
+    branches:
+      - 2.x
+    paths:
+      - ".github/workflows/ipad5-darksword-observer.yml"
+      - ".github/workflows/ipad5-darksword.yml"
+      - "research/ipad5_visual_logging_patch.py"
+      - "research/ipad5_darksword_patch.py"
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  observe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print latest diagnostic failure
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_BRANCH: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/workflows/ipad5-darksword.yml/runs?branch=${HEAD_BRANCH}&status=completed&per_page=5" > runs.json
+          RUN_ID="$(jq -r '.workflow_runs[0].id // empty' runs.json)"
+          test -n "$RUN_ID"
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/jobs?per_page=10" > jobs.json
+          JOB_ID="$(jq -r '.jobs[] | select(.name == "build") | .id' jobs.json | head -n 1)"
+          test -n "$JOB_ID"
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/jobs/${JOB_ID}/logs" > logs.bin
+          if unzip -tq logs.bin >/dev/null 2>&1; then
+            unzip -p logs.bin > build.log
+          else
+            cp logs.bin build.log
+          fi
+          echo "DIAGNOSTIC_ERROR_BEGIN"
+          grep -Ei 'Traceback|RuntimeError|expected exactly|Added visible|Patched .*DarkSword|Process completed with exit code' build.log | tail -n 80 || true
+          echo "DIAGNOSTIC_ERROR_END"
