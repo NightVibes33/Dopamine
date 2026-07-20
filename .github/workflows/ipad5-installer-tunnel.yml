@@ -74,15 +74,15 @@ jobs:
       - name: Start installer and Cloudflare tunnel
         run: |
           set -euxo pipefail
-          python3 -m http.server 8080 --directory site > http-server.log 2>&1 &
-          SERVER_PID=$!
+          RUNNER_TRACKING_ID="" nohup python3 -m http.server 8080 --directory site > http-server.log 2>&1 &
+          echo "$!" > server.pid
 
           curl -fsSL \
             https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
             -o cloudflared
           chmod +x cloudflared
-          ./cloudflared tunnel --url http://127.0.0.1:8080 --no-autoupdate > cloudflared.log 2>&1 &
-          TUNNEL_PID=$!
+          RUNNER_TRACKING_ID="" nohup ./cloudflared tunnel --url http://127.0.0.1:8080 --no-autoupdate > cloudflared.log 2>&1 &
+          echo "$!" > tunnel.pid
 
           URL=""
           for _ in $(seq 1 90); do
@@ -98,6 +98,8 @@ jobs:
             exit 1
           fi
 
+          printf '%s\n' "$URL/complete" > installer-url.txt
+          printf '%s\n' "$URL/Dopamine-iPad5-DarkSword-StockBaseline.ipa" > ipa-url.txt
           echo "INSTALLER_URL=$URL/complete"
           echo "IPA_URL=$URL/Dopamine-iPad5-DarkSword-StockBaseline.ipa"
           echo "## iPad 5 StockBaseline installer" >> "$GITHUB_STEP_SUMMARY"
@@ -107,6 +109,24 @@ jobs:
           echo "- Source commit: 5ea434e0f63cca7d4feb4aaecc244ac7c5ca5cfd" >> "$GITHUB_STEP_SUMMARY"
           echo "::notice title=StockBaseline installer::$URL/complete"
 
+      - name: Upload installer URL
+        uses: actions/upload-artifact@v4
+        with:
+          name: Dopamine-iPad5-Installer-URL
+          path: |
+            installer-url.txt
+            ipa-url.txt
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Keep installer online
+        run: |
+          set -euxo pipefail
+          SERVER_PID=$(cat server.pid)
+          TUNNEL_PID=$(cat tunnel.pid)
           while kill -0 "$SERVER_PID" 2>/dev/null && kill -0 "$TUNNEL_PID" 2>/dev/null; do
             sleep 30
           done
+          cat http-server.log || true
+          cat cloudflared.log || true
+          exit 1
