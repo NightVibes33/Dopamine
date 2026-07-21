@@ -6,7 +6,7 @@ import runpy
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-BASE_PATCH = ROOT / "research" / "paleramine_full_build_patch.py"
+BASE_PATCH = ROOT / "research" / "paleramine_full_build_patch_base.py"
 DARKSWORD = ROOT / "Application" / "Dopamine" / "Exploits" / "DarkSword" / "DarkSword.m"
 DARKSWORD_INFO = ROOT / "Application" / "Dopamine" / "Exploits" / "DarkSword" / "Info.plist"
 JAILBREAKER = ROOT / "Application" / "Dopamine" / "Jailbreak" / "DOJailbreaker.m"
