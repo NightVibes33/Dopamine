@@ -280,6 +280,7 @@ new_bundle_block = (
 project = replace_exact(project, old_bundle_block, new_bundle_block, count=2, label="app build settings")
 project = replace_exact(project, "MARKETING_VERSION = 2.4.99;", "MARKETING_VERSION = 0.1.0;", count=2, label="marketing version")
 project = project.replace("productName = Dopamine;", f"productName = {BRAND};", 1)
+project = replace_exact(project, "path = Dopamine.app;", f"path = {BRAND}.app;", count=1, label="product reference")
 PROJECT.write_text(project, encoding="utf-8")
 
 app_make = APP_MAKEFILE.read_text(encoding="utf-8")
@@ -318,17 +319,28 @@ ui = replace_exact(
     count=1,
     label="main header",
 )
-update_block = re.compile(
-    r'\n\s*dispatch_after\(dispatch_time\(DISPATCH_TIME_NOW, 0\.1 \* NSEC_PER_SEC\),.*?\n\s*\}\);\n',
-    re.DOTALL,
-)
-ui, update_count = update_block.subn(
-    '\n    // Paleramine research builds are source-pinned; upstream auto-update is disabled.\n',
+update_source = '''    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.1 * NSEC_PER_SEC), dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0), ^{
+        if ([[DOUIManager sharedInstance] environmentUpdateAvailable])
+        {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self setupUpdateAvailable:YES];
+            });
+        }
+        else if ([[DOUIManager sharedInstance] isUpdateAvailable])
+        {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self setupUpdateAvailable:NO];
+            });
+        }
+    });
+'''
+ui = replace_exact(
     ui,
+    update_source,
+    '    // Paleramine research builds are source-pinned; upstream auto-update is disabled.\n',
     count=1,
+    label="update check block",
 )
-if update_count != 1:
-    raise SystemExit(f"update check block: expected one replacement, found {update_count}")
 ui = ui.replace("Jailbreak failed with error:", "Paleramine failed with error:")
 write_text(MAIN_UI, ui)
 
@@ -471,7 +483,7 @@ with DARKSWORD_INFO.open("rb") as handle:
 flavors = exploit_info.setdefault("DPExploitFlavors", {})
 default_flavor = dict(flavors["default"])
 default_flavor["DPFlavorPriority"] = 980
-default_flavor["DPSupportedRanges"] = [{"Start": TARGET_VERSION, "End": TARGET_VERSION}]
+default_flavor["DPSupportedRanges"] = [{"Start": "0.0", "End": "0.0"}]
 default_flavor["DPSupportInclude"] = [{
     "Devices": list(TARGET_MODELS),
     "Builds": [TARGET_BUILD],
