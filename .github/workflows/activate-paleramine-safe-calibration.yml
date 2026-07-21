@@ -1,0 +1,39 @@
+name: Activate Paleramine Safe Calibration
+
+on:
+  push:
+    branches:
+      - research/paleramine-no-pc
+    paths:
+      - ".github/workflows/activate-paleramine-safe-calibration.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  activate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: research/paleramine-no-pc
+          fetch-depth: 0
+      - name: Make safe calibration the build entry
+        run: |
+          set -euxo pipefail
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          if [[ ! -f research/paleramine_full_build_patch_base.py ]]; then
+            git mv research/paleramine_full_build_patch.py research/paleramine_full_build_patch_base.py
+          fi
+          sed -i 's/paleramine_full_build_patch.py/paleramine_full_build_patch_base.py/' research/paleramine_safe_calibration_patch.py
+          cat > research/paleramine_full_build_patch.py <<'PY'
+          #!/usr/bin/env python3
+          from pathlib import Path
+          import runpy
+          runpy.run_path(str(Path(__file__).with_name("paleramine_safe_calibration_patch.py")), run_name="__main__")
+          PY
+          chmod +x research/paleramine_full_build_patch.py research/paleramine_safe_calibration_patch.py
+          git add research/paleramine_full_build_patch.py research/paleramine_full_build_patch_base.py research/paleramine_safe_calibration_patch.py
+          git commit -m 'Make safe race calibration the Paleramine build entry'
+          git push origin HEAD:research/paleramine-no-pc
