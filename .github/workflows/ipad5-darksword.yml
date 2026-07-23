@@ -1,9 +1,10 @@
-name: "Dopamine: iPad 5 DarkSword diagnostic"
+name: "Dopamine: iPad 5 DarkSword stability"
 
 on:
   workflow_dispatch:
   push:
     branches:
+      - main
       - research/ipad5-darksword
     paths:
       - "research/ipad5_darksword_patch.py"
@@ -35,12 +36,14 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Apply diagnostic-only iPad 5 patch
+      - name: Apply iPad 5 stability patch
         run: |
           set -euxo pipefail
           python3 research/ipad5_darksword_patch.py
           git diff --check
-          grep -nE 'diagnostic-only profile|stock DarkSword parameters|upstream target|if \(r < 0\)' Application/Dopamine/Exploits/DarkSword/DarkSword.m
+          grep -nE 'stability profile|watchdog-safe DarkSword parameters|watchdog-safe DarkSword path|if \(r < 0\)' Application/Dopamine/Exploits/DarkSword/DarkSword.m
+          grep -nE 'while \(freeThreadStart == 0\) usleep\(250\)|while \(raceSync == 1\) usleep\(10\)|surface_munlock\(searchMappingAddress, searchMappingSize\)|bounded corruption attempt exhausted' Application/Dopamine/Exploits/DarkSword/DarkSword.m
+          grep -n 'DarkSword iPad 5: CPU watchdog and IOSurface cleanup enabled' Application/Dopamine/Jailbreak/DOJailbreaker.m
           if grep -nE 'freopen[[:space:]]*\(' Application/Dopamine/Exploits/DarkSword/DarkSword.m; then
             echo '::error::DarkSword redirects stdout; live console would freeze'
             exit 1
@@ -115,16 +118,16 @@ jobs:
           cd Application/Dopamine/Resources
           ./download_bootstraps.sh
 
-      - name: Build diagnostic IPA
+      - name: Build stability IPA
         run: |
           set -euxo pipefail
           export BASEDIR="$(pwd)"
           export THEOS="${BASEDIR}/theos"
           gmake -j"$(sysctl -n hw.logicalcpu)" NIGHTLY=1
 
-      - name: Upload diagnostic IPA
+      - name: Upload stability IPA
         uses: actions/upload-artifact@v4
         with:
-          name: Dopamine-iPad5-DarkSword-StockBaseline
+          name: Dopamine-iPad5-DarkSword-Stability
           path: Application/Dopamine.ipa
           if-no-files-found: error
