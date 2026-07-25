@@ -1,0 +1,75 @@
+name: "Dopamine: iPad 5 DarkSword report"
+
+on:
+  workflow_run:
+    workflows:
+      - "Dopamine: iPad 5 DarkSword control matrix"
+    types:
+      - completed
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  report:
+    if: github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Collect matrix result
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p research
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/jobs?per_page=30" > jobs.json
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/artifacts?per_page=30" > artifacts.json
+
+          {
+            echo "# iPad 5 DarkSword build status"
+            echo
+            echo "- Run: ${RUN_ID}"
+            echo "- URL: ${RUN_URL}"
+            echo "- Source SHA: ${RUN_SHA}"
+            echo "- Conclusion: ${RUN_CONCLUSION}"
+            echo "- Reported UTC: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo
+            echo "## Jobs"
+            jq -r '.jobs[] | "- **\(.name)** — status=\(.status), conclusion=\(.conclusion), job_id=\(.id)"' jobs.json
+            echo
+            echo "## Steps"
+            jq -r '.jobs[] as $job | $job.steps[] | "- \($job.name) :: \(.number). \(.name) — \(.conclusion // .status)"' jobs.json
+            echo
+            echo "## Artifacts"
+            if [ "$(jq '.artifacts | length' artifacts.json)" -eq 0 ]; then
+              echo "- None"
+            else
+              jq -r '.artifacts[] | "- **\(.name)** — artifact_id=\(.id), bytes=\(.size_in_bytes), expired=\(.expired)"' artifacts.json
+            fi
+          } > research/ipad5-build-status.md
+
+      - name: Publish report to main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main
+          git add research/ipad5-build-status.md
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "Record iPad 5 DarkSword matrix status [skip ci]"
+          git push origin HEAD:main
