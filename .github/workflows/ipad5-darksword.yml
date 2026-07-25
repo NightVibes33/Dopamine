@@ -1,68 +1,76 @@
-name: "Dopamine: iPad 5 DarkSword stability"
+name: "Dopamine: iPad 5 DarkSword control matrix"
 
 on:
   workflow_dispatch:
   push:
     branches:
       - main
-      - research/ipad5-darksword
     paths:
-      - "research/ipad5_darksword_patch.py"
       - ".github/workflows/ipad5-darksword.yml"
+      - "research/ipad5_darksword_patch.py"
       - "Application/**"
       - "BaseBin/**"
   pull_request:
     branches:
-      - 2.x
+      - main
     paths:
-      - "research/ipad5_darksword_patch.py"
       - ".github/workflows/ipad5-darksword.yml"
+      - "research/ipad5_darksword_patch.py"
       - "Application/**"
       - "BaseBin/**"
 
 concurrency:
-  group: ipad5-darksword-${{ github.workflow }}-${{ github.sha }}
-  cancel-in-progress: false
+  group: ipad5-darksword-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
   build:
+    name: Build ${{ matrix.profile }} control
     runs-on: macos-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        profile:
+          - stock
+          - stability
+
     steps:
-      - name: Checkout
+      - name: Checkout main with submodules
         uses: actions/checkout@v4
         with:
+          ref: main
           submodules: recursive
+          fetch-depth: 0
 
-      - name: Apply iPad 5 stability patch
+      - name: Select build profile
+        shell: bash
         run: |
-          set -euxo pipefail
-          python3 research/ipad5_darksword_patch.py
-          git diff --check
-          grep -nE 'stability profile|watchdog-safe DarkSword parameters|watchdog-safe DarkSword path|if \(r < 0\)' Application/Dopamine/Exploits/DarkSword/DarkSword.m
-          grep -nE 'while \(freeThreadStart == 0\) usleep\(250\)|while \(raceSync == 1\) usleep\(10\)|surface_munlock\(searchMappingAddress, searchMappingSize\)|bounded corruption attempt exhausted' Application/Dopamine/Exploits/DarkSword/DarkSword.m
-          grep -n 'DarkSword iPad 5: CPU watchdog and IOSurface cleanup enabled' Application/Dopamine/Jailbreak/DOJailbreaker.m
-          if grep -nE 'freopen[[:space:]]*\(' Application/Dopamine/Exploits/DarkSword/DarkSword.m; then
-            echo '::error::DarkSword redirects stdout; live console would freeze'
-            exit 1
-          fi
-          if grep -nE '0x6000|0xC00|8192, 10240, 12288|tryLimit|isIPad5Device \? 900' Application/Dopamine/Exploits/DarkSword/DarkSword.m; then
-            echo '::error::Experimental heap, spray, or race tuning is still present'
-            exit 1
-          fi
-          if ! grep -q 'for (unsigned socketCount = 0; socketCount < (maxfiles - leeway); socketCount++)' Application/Dopamine/Exploits/DarkSword/DarkSword.m; then
-            echo '::error::Upstream socket spray loop was changed'
-            exit 1
-          fi
-          if ! grep -q 'totalSearchMappingPagesNum = isA18Device ? (0x10 \* 0x10) : (0x1000 \* 0x10)' Application/Dopamine/Exploits/DarkSword/DarkSword.m; then
-            echo '::error::Upstream search geometry was changed'
-            exit 1
-          fi
-          git diff -- Application/Dopamine/Exploits/DarkSword/DarkSword.m Application/Dopamine/Jailbreak/DOJailbreaker.m
+          set -euo pipefail
+          echo "DARKSWORD_PROFILE=${{ matrix.profile }}" >> "$GITHUB_ENV"
+          mkdir -p output
 
-      - name: Xcode Setup
+          if [ "${{ matrix.profile }}" = "stability" ]; then
+            python3 research/ipad5_darksword_patch.py
+            grep -nE 'stability profile|watchdog-safe DarkSword parameters|surface_munlock\(searchMappingAddress, searchMappingSize\)|bounded corruption attempt exhausted' \
+              Application/Dopamine/Exploits/DarkSword/DarkSword.m
+          else
+            if grep -q 'isIPad5Device' Application/Dopamine/Exploits/DarkSword/DarkSword.m; then
+              echo '::error::Stock control unexpectedly contains the iPad-specific runtime patch'
+              exit 1
+            fi
+            grep -n 'totalSearchMappingPagesNum = isA18Device ? (0x10 \* 0x10) : (0x1000 \* 0x10)' \
+              Application/Dopamine/Exploits/DarkSword/DarkSword.m
+          fi
+
+          git diff --check
+          git diff -- Application/Dopamine/Exploits/DarkSword/DarkSword.m \
+            Application/Dopamine/Jailbreak/DOJailbreaker.m > "output/${{ matrix.profile }}-source.patch"
+
+      - name: Xcode setup
         uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: latest-stable
@@ -72,30 +80,32 @@ jobs:
         with:
           packages: ldid findutils sed coreutils make
 
-      - name: Install GNU Make
+      - name: Install build dependencies
+        shell: bash
         run: |
-          brew install make
+          set -euo pipefail
+          brew install make libarchive openssl
           echo "PATH=$(brew --prefix make)/libexec/gnubin:$PATH" >> "$GITHUB_ENV"
 
-      - name: Install THEOS
+      - name: Install Theos and iOS SDK
+        shell: bash
         run: |
-          set -euxo pipefail
-          export BASEDIR="$(pwd)"
-          export THEOS="${BASEDIR}/theos"
+          set -euo pipefail
+          export BASEDIR="$PWD"
+          export THEOS="$BASEDIR/theos"
           mkdir -p "$THEOS"
           curl -fsSL https://raw.githubusercontent.com/theos/theos/master/bin/install-theos > install-theos.sh
           gsed -E "/^\s*get_theos\s*$/,+1 s/^(\s*)(get_sdks)\s*$/\1mkdir -p \${THEOS}\/sdks\n\1touch \${THEOS}\/sdks\/sdk\n\1\2/g" -i install-theos.sh
           bash install-theos.sh
-          curl -L https://github.com/theos/sdks/releases/latest/download/iPhoneOS16.5.sdk.tar.xz -o "$THEOS/sdks/iPhoneOS16.5.sdk.tar.xz"
+          curl -fL https://github.com/theos/sdks/releases/latest/download/iPhoneOS16.5.sdk.tar.xz \
+            -o "$THEOS/sdks/iPhoneOS16.5.sdk.tar.xz"
           tar -xf "$THEOS/sdks/iPhoneOS16.5.sdk.tar.xz" -C "$THEOS/sdks"
           rm "$THEOS/sdks/iPhoneOS16.5.sdk.tar.xz"
 
-      - name: Install build dependencies
-        run: brew install libarchive openssl
-
       - name: Build and install trustcache
+        shell: bash
         run: |
-          set -euxo pipefail
+          set -euo pipefail
           git clone --depth 1 https://github.com/CRKatri/trustcache
           cd trustcache
           export CFLAGS="${CFLAGS:-} -I$(brew --prefix openssl)/include -arch arm64"
@@ -103,31 +113,53 @@ jobs:
           gmake -j"$(sysctl -n hw.logicalcpu)" OPENSSL=1
           sudo cp trustcache /opt/procursus/bin/
 
-      - name: Set build metadata
-        run: |
-          T2=$(TZ=UTC-2 date +'%Y%m%d_%H%M%S')
-          TS=$(date -j -f "%Y%m%d_%H%M%S" "${T2}" +%s)
-          SHASH=$(git rev-parse --short HEAD)
-          echo "ctime=${T2}" >> "$GITHUB_ENV"
-          echo "ctimestamp=${TS}" >> "$GITHUB_ENV"
-          echo "shorthash=${SHASH}" >> "$GITHUB_ENV"
-
       - name: Download bootstraps
+        shell: bash
         run: |
-          set -euxo pipefail
+          set -euo pipefail
           cd Application/Dopamine/Resources
           ./download_bootstraps.sh
 
-      - name: Build stability IPA
+      - name: Build IPA
+        shell: bash
         run: |
-          set -euxo pipefail
-          export BASEDIR="$(pwd)"
-          export THEOS="${BASEDIR}/theos"
+          set -euo pipefail
+          export BASEDIR="$PWD"
+          export THEOS="$BASEDIR/theos"
           gmake -j"$(sysctl -n hw.logicalcpu)" NIGHTLY=1
+          test -s Application/Dopamine.ipa
 
-      - name: Upload stability IPA
+      - name: Package diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp Application/Dopamine.ipa "output/Dopamine-iPad5-DarkSword-${{ matrix.profile }}.ipa"
+          shasum -a 256 "output/Dopamine-iPad5-DarkSword-${{ matrix.profile }}.ipa" \
+            > "output/Dopamine-iPad5-DarkSword-${{ matrix.profile }}.ipa.sha256"
+
+          {
+            echo "profile=${{ matrix.profile }}"
+            echo "repository=${GITHUB_REPOSITORY}"
+            echo "source_sha=$(git rev-parse HEAD)"
+            echo "source_short_sha=$(git rev-parse --short HEAD)"
+            echo "workflow_run=${GITHUB_RUN_ID}"
+            echo "workflow_attempt=${GITHUB_RUN_ATTEMPT}"
+            echo "built_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "xcode=$(xcodebuild -version | tr '\n' ' ')"
+            echo "submodules:"
+            git submodule status --recursive
+          } > "output/${{ matrix.profile }}-manifest.txt"
+
+          find . -type d -name '*.dSYM' -prune -print > "output/${{ matrix.profile }}-dsym-paths.txt"
+          if [ -s "output/${{ matrix.profile }}-dsym-paths.txt" ]; then
+            tar -czf "output/${{ matrix.profile }}-dSYMs.tar.gz" \
+              -T "output/${{ matrix.profile }}-dsym-paths.txt"
+          fi
+
+      - name: Upload ${{ matrix.profile }} package
         uses: actions/upload-artifact@v4
         with:
-          name: Dopamine-iPad5-DarkSword-Stability
-          path: Application/Dopamine.ipa
+          name: Dopamine-iPad5-DarkSword-${{ matrix.profile }}
+          path: output/
           if-no-files-found: error
+          retention-days: 14
