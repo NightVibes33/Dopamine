@@ -259,16 +259,27 @@ int systemwide_process_checkin(audit_token_t *processToken, char **rootPathOut, 
 	if (stat(procPath, &sb) == 0) {
 		if (S_ISREG(sb.st_mode) && (sb.st_mode & (S_ISUID | S_ISGID))) {
 			uint64_t ucred = proc_ucred(proc);
+
+			gid_t groups[NGROUPS_MAX];
+			kreadbuf(ucred + koffsetof(ucred, groups), groups, sizeof(groups));
+
+			int uid = kread32(ucred + koffsetof(ucred, uid)), gid = groups[0];
+			int ruid = kread32(ucred + koffsetof(ucred, ruid)), rgid = kread32(ucred + koffsetof(ucred, rgid));
+			int old_uid = uid, old_gid = gid;
+
 			if ((sb.st_mode & (S_ISUID))) {
 				kwrite32(proc + koffsetof(proc, svuid), sb.st_uid);
-				kwrite32(ucred + koffsetof(ucred, svuid), sb.st_uid);
-				kwrite32(ucred + koffsetof(ucred, uid), sb.st_uid);
+				uid = sb.st_uid;
 			}
 			if ((sb.st_mode & (S_ISGID))) {
 				kwrite32(proc + koffsetof(proc, svgid), sb.st_gid);
-				kwrite32(ucred + koffsetof(ucred, svgid), sb.st_gid);
-				kwrite32(ucred + koffsetof(ucred, groups), sb.st_gid);
+				gid = sb.st_gid;
 			}
+
+			if (old_uid != uid || old_gid != gid) {
+				proc_ucred_update_content(proc, procPath, uid, gid, ruid, rgid, groups);
+			}
+
 			uint32_t flag = kread32(proc + koffsetof(proc, flag));
 			if ((flag & P_SUGID) != 0) {
 				flag &= ~P_SUGID;
@@ -310,11 +321,14 @@ int systemwide_process_checkin(audit_token_t *processToken, char **rootPathOut, 
 	// This is so that the buttons inside it can work when jailbroken, even if the app was not installed by TrollStore
 	else if (string_has_suffix(procPath, "/Dopamine.app/Dopamine")) {
 		// svuid = 0, svgid = 0
-		uint64_t ucred = proc_ucred(proc);
-		kwrite32(proc + koffsetof(proc, svuid), 0);
-		kwrite32(ucred + koffsetof(ucred, svuid), 0);
-		kwrite32(proc + koffsetof(proc, svgid), 0);
-		kwrite32(ucred + koffsetof(ucred, svgid), 0);
+		if (__builtin_available(iOS 17.0, *)) {}
+		else {
+			uint64_t ucred = proc_ucred(proc);
+			kwrite32(proc + koffsetof(proc, svuid), 0);
+			kwrite32(ucred + koffsetof(ucred, svuid), 0);
+			kwrite32(proc + koffsetof(proc, svgid), 0);
+			kwrite32(ucred + koffsetof(ucred, svgid), 0);
+		}
 
 		// platformize
 		proc_csflags_set(proc, CS_PLATFORM_BINARY);
@@ -392,9 +406,25 @@ int systemwide_fork_fix(audit_token_t *parentToken, uint64_t childPid)
 					uint8_t parentProt = VM_FLAGS_GET_PROT(parentFlags), parentMaxProt = VM_FLAGS_GET_MAXPROT(parentFlags);
 					uint8_t childProt  = VM_FLAGS_GET_PROT(childFlags),  childMaxProt  = VM_FLAGS_GET_MAXPROT(childFlags);
 
+					bool childFlagsNeedUpdate = false;
+
 					if (parentProt != childProt || parentMaxProt != childMaxProt) {
 						VM_FLAGS_SET_PROT(childFlags, parentProt);
 						VM_FLAGS_SET_MAXPROT(childFlags, parentMaxProt);
+						childFlagsNeedUpdate = true;
+					}
+
+					if (__builtin_available(iOS 16.0, *)) {
+						// On iOS 16+ devices, there exists the vme_xnu_user_debug flag, which we also need to copy
+						bool parentUserDebugFlag = VM_FLAGS_GET_XNU_USER_DEBUG(parentFlags);
+						bool childUserDebugFlag  = VM_FLAGS_GET_XNU_USER_DEBUG(childFlags);
+						if (parentUserDebugFlag != childUserDebugFlag) {
+							VM_FLAGS_SET_XNU_USER_DEBUG(childFlags, parentUserDebugFlag);
+							childFlagsNeedUpdate = true;
+						}
+					}
+
+					if (childFlagsNeedUpdate) {
 						kwrite64(childEntry + koffsetof(vm_map_entry, flags), childFlags);
 					}
 
@@ -424,6 +454,58 @@ static int systemwide_cs_revalidate(audit_token_t *callerToken)
 		}
 	}
 	return -1;
+}
+
+static int systemwide_persona_fix(audit_token_t *callerToken, int childPid, uid_t overwriteUid, gid_t overwriteGid)
+{
+	bool hasPersonaMgmtEntitlement = false;
+	xpc_object_t *personaMgmtVal = xpc_copy_entitlement_for_token("com.apple.private.persona-mgmt", callerToken);
+	if (personaMgmtVal) {
+		if (xpc_get_type(personaMgmtVal) == XPC_TYPE_INT64) {
+			hasPersonaMgmtEntitlement = xpc_int64_get_value(personaMgmtVal) == 1;
+		}
+		else if (xpc_get_type(personaMgmtVal) == XPC_TYPE_UINT64) {
+			hasPersonaMgmtEntitlement = xpc_uint64_get_value(personaMgmtVal) == 1;
+		}
+		else if (xpc_get_type(personaMgmtVal) == XPC_TYPE_BOOL) {
+			hasPersonaMgmtEntitlement = xpc_bool_get_value(personaMgmtVal);
+		}
+	}
+
+	if (!hasPersonaMgmtEntitlement) return -1;
+
+	uint64_t childProc = proc_find(childPid);
+	if (!childProc) return -1;
+
+	char childProcPath[4*MAXPATHLEN];
+	if (proc_pidpath(childPid, childProcPath, sizeof(childProcPath)) <= 0) {
+		return -1;
+	}
+
+	uint64_t childUcred = proc_ucred(childProc);
+
+	gid_t groups[NGROUPS_MAX];
+	kreadbuf(childUcred + koffsetof(ucred, groups), groups, sizeof(groups));
+
+	int uid = kread32(childUcred + koffsetof(ucred, uid)), gid = groups[0];
+	int ruid = kread32(childUcred + koffsetof(ucred, ruid)), rgid = kread32(childUcred + koffsetof(ucred, rgid));
+	int old_uid = uid, old_gid = gid;
+
+	if (overwriteUid != -1) {
+		uid = overwriteUid;
+		kwrite32(childProc + koffsetof(proc, svuid), uid);
+	}
+	if (overwriteGid != -1) {
+		gid = overwriteGid;
+		kwrite32(childProc + koffsetof(proc, svgid), gid);
+	}
+
+	if (old_uid != uid || old_gid != gid) {
+		if (old_gid != gid) groups[0] = gid;
+		proc_ucred_update_content(childProc, childProcPath, uid, gid, uid, gid, groups);
+	}
+
+	return 0;
 }
 
 struct jbserver_domain gSystemwideDomain = {
@@ -490,6 +572,16 @@ struct jbserver_domain gSystemwideDomain = {
 			.args = (jbserver_arg[]){
 				{ .name = "key", .type = JBS_TYPE_STRING, .out = false },
 				{ .name = "value", .type = JBS_TYPE_XPC_GENERIC, .out = true },
+			},
+		},
+		// JBS_SYSTEMWIDE_PERSONA_FIX
+		{
+			.handler = systemwide_persona_fix,
+			.args = (jbserver_arg[]){
+				{ .name = "caller-token", .type = JBS_TYPE_CALLER_TOKEN, .out = false },
+				{ .name = "child-pid", .type = JBS_TYPE_UINT64, .out = false },
+				{ .name = "overwrite-uid", .type = JBS_TYPE_UINT64, .out = false },
+				{ .name = "overwrite-gid", .type = JBS_TYPE_UINT64, .out = false },
 			},
 		},
 		{ 0 },

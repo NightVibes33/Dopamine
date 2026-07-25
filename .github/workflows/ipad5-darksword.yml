@@ -1,0 +1,130 @@
+name: "Dopamine: iPad 5 DarkSword diagnostic"
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - research/ipad5-darksword
+    paths:
+      - "research/ipad5_darksword_patch.py"
+      - ".github/workflows/ipad5-darksword.yml"
+      - "Application/**"
+      - "BaseBin/**"
+  pull_request:
+    branches:
+      - 2.x
+    paths:
+      - "research/ipad5_darksword_patch.py"
+      - ".github/workflows/ipad5-darksword.yml"
+      - "Application/**"
+      - "BaseBin/**"
+
+concurrency:
+  group: ipad5-darksword-${{ github.workflow }}-${{ github.sha }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Apply diagnostic-only iPad 5 patch
+        run: |
+          set -euxo pipefail
+          python3 research/ipad5_darksword_patch.py
+          git diff --check
+          grep -nE 'diagnostic-only profile|stock DarkSword parameters|upstream target|if \(r < 0\)' Application/Dopamine/Exploits/DarkSword/DarkSword.m
+          if grep -nE 'freopen[[:space:]]*\(' Application/Dopamine/Exploits/DarkSword/DarkSword.m; then
+            echo '::error::DarkSword redirects stdout; live console would freeze'
+            exit 1
+          fi
+          if grep -nE '0x6000|0xC00|8192, 10240, 12288|tryLimit|isIPad5Device \? 900' Application/Dopamine/Exploits/DarkSword/DarkSword.m; then
+            echo '::error::Experimental heap, spray, or race tuning is still present'
+            exit 1
+          fi
+          if ! grep -q 'for (unsigned socketCount = 0; socketCount < (maxfiles - leeway); socketCount++)' Application/Dopamine/Exploits/DarkSword/DarkSword.m; then
+            echo '::error::Upstream socket spray loop was changed'
+            exit 1
+          fi
+          if ! grep -q 'totalSearchMappingPagesNum = isA18Device ? (0x10 \* 0x10) : (0x1000 \* 0x10)' Application/Dopamine/Exploits/DarkSword/DarkSword.m; then
+            echo '::error::Upstream search geometry was changed'
+            exit 1
+          fi
+          git diff -- Application/Dopamine/Exploits/DarkSword/DarkSword.m Application/Dopamine/Jailbreak/DOJailbreaker.m
+
+      - name: Xcode Setup
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Install Procursus
+        uses: dhinakg/procursus-action@main
+        with:
+          packages: ldid findutils sed coreutils make
+
+      - name: Install GNU Make
+        run: |
+          brew install make
+          echo "PATH=$(brew --prefix make)/libexec/gnubin:$PATH" >> "$GITHUB_ENV"
+
+      - name: Install THEOS
+        run: |
+          set -euxo pipefail
+          export BASEDIR="$(pwd)"
+          export THEOS="${BASEDIR}/theos"
+          mkdir -p "$THEOS"
+          curl -fsSL https://raw.githubusercontent.com/theos/theos/master/bin/install-theos > install-theos.sh
+          gsed -E "/^\s*get_theos\s*$/,+1 s/^(\s*)(get_sdks)\s*$/\1mkdir -p \${THEOS}\/sdks\n\1touch \${THEOS}\/sdks\/sdk\n\1\2/g" -i install-theos.sh
+          bash install-theos.sh
+          curl -L https://github.com/theos/sdks/releases/latest/download/iPhoneOS16.5.sdk.tar.xz -o "$THEOS/sdks/iPhoneOS16.5.sdk.tar.xz"
+          tar -xf "$THEOS/sdks/iPhoneOS16.5.sdk.tar.xz" -C "$THEOS/sdks"
+          rm "$THEOS/sdks/iPhoneOS16.5.sdk.tar.xz"
+
+      - name: Install build dependencies
+        run: brew install libarchive openssl
+
+      - name: Build and install trustcache
+        run: |
+          set -euxo pipefail
+          git clone --depth 1 https://github.com/CRKatri/trustcache
+          cd trustcache
+          export CFLAGS="${CFLAGS:-} -I$(brew --prefix openssl)/include -arch arm64"
+          export LDFLAGS="${LDFLAGS:-} -L$(brew --prefix openssl)/lib -arch arm64"
+          gmake -j"$(sysctl -n hw.logicalcpu)" OPENSSL=1
+          sudo cp trustcache /opt/procursus/bin/
+
+      - name: Set build metadata
+        run: |
+          T2=$(TZ=UTC-2 date +'%Y%m%d_%H%M%S')
+          TS=$(date -j -f "%Y%m%d_%H%M%S" "${T2}" +%s)
+          SHASH=$(git rev-parse --short HEAD)
+          echo "ctime=${T2}" >> "$GITHUB_ENV"
+          echo "ctimestamp=${TS}" >> "$GITHUB_ENV"
+          echo "shorthash=${SHASH}" >> "$GITHUB_ENV"
+
+      - name: Download bootstraps
+        run: |
+          set -euxo pipefail
+          cd Application/Dopamine/Resources
+          ./download_bootstraps.sh
+
+      - name: Build diagnostic IPA
+        run: |
+          set -euxo pipefail
+          export BASEDIR="$(pwd)"
+          export THEOS="${BASEDIR}/theos"
+          gmake -j"$(sysctl -n hw.logicalcpu)" NIGHTLY=1
+
+      - name: Upload diagnostic IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Dopamine-iPad5-DarkSword-StockBaseline
+          path: Application/Dopamine.ipa
+          if-no-files-found: error
