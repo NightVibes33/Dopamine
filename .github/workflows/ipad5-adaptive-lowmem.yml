@@ -18,6 +18,9 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  OFFICIAL_DARKSWORD_BASE: 53d75cff78f0fa71e4a366c6287b32ad01e8b6d1
+
 jobs:
   build:
     name: Build adaptive iPad5 IPA
@@ -32,12 +35,17 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Verify exact adaptive source
+      - name: Verify official DarkSword ancestry and adaptive source
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p output
           test "$(git branch --show-current)" = "ipad5/adaptive-lowmem-v1"
+          git cat-file -e "${OFFICIAL_DARKSWORD_BASE}^{commit}"
+          git merge-base --is-ancestor "$OFFICIAL_DARKSWORD_BASE" HEAD
+          echo "official_darksword_base=$OFFICIAL_DARKSWORD_BASE" > output/upstream-base.txt
+          echo "official_base_present=yes" >> output/upstream-base.txt
+          echo "commits_ahead=$(git rev-list --count ${OFFICIAL_DARKSWORD_BASE}..HEAD)" >> output/upstream-base.txt
           grep -n 'iPad5-Adaptive' Application/Dopamine/Exploits/DarkSword/DarkSword.m
           grep -n 'balanced-512MB' Application/Dopamine/Exploits/DarkSword/DarkSword.m
           grep -n 'compact-384MB' Application/Dopamine/Exploits/DarkSword/DarkSword.m
@@ -112,6 +120,8 @@ jobs:
           shasum -a 256 output/Dopamine-iPad5-DarkSword-adaptive.ipa > output/Dopamine-iPad5-DarkSword-adaptive.ipa.sha256
           {
             echo "profile=adaptive-lowmem-v1"
+            echo "official_darksword_base=${OFFICIAL_DARKSWORD_BASE}"
+            echo "official_base_ancestor=$(git merge-base --is-ancestor ${OFFICIAL_DARKSWORD_BASE} HEAD && echo yes || echo no)"
             echo "repository=${GITHUB_REPOSITORY}"
             echo "source_sha=$(git rev-parse HEAD)"
             echo "source_short_sha=$(git rev-parse --short HEAD)"
