@@ -1,0 +1,198 @@
+name: One-shot A18 research UI patch
+
+on:
+  push:
+    branches:
+      - iphone16-ios27-v2
+    paths:
+      - '.github/workflows/a18-research-ui-patch.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: iphone16-ios27-v2
+          fetch-depth: 0
+
+      - name: Patch safe AppleAVE2 diagnostics and research record
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          h = Path('Application/Dopamine/Jailbreak/DOExploit.h')
+          s = h.read_text()
+          anchor = 'typedef enum {\n    EXPLOIT_TYPE_KERNEL = 0,\n    EXPLOIT_TYPE_PAC,\n    EXPLOIT_TYPE_PPL,\n    EXPLOIT_TYPE_COUNT,\n} ExploitType;\n\n'
+          assert anchor in s
+          if 'DOAppleAVE2ReachabilitySummary' not in s:
+              s = s.replace(anchor, anchor + '/// Harmless A18 research probe result. Opens/closes AppleAVE2 user clients only; no external methods are invoked.\nFOUNDATION_EXPORT NSString * _Nullable DOAppleAVE2ReachabilitySummary(void);\n\n')
+          h.write_text(s)
+
+          m = Path('Application/Dopamine/Jailbreak/DOExploit.m')
+          s = m.read_text()
+          start = s.index('static void DOProbeAppleAVE2Reachability(void)')
+          end = s.index('\n@implementation DOExploit', start)
+          replacement = r'''static NSString *gDOAppleAVE2ReachabilitySummary = nil;
+
+static BOOL DOIsA18ResearchDevice(void)
+{
+    cpu_subtype_t cpuFamily = 0;
+    size_t cpuFamilySize = sizeof(cpuFamily);
+    if (sysctlbyname("hw.cpufamily", &cpuFamily, &cpuFamilySize, NULL, 0) != 0) return NO;
+    return cpuFamily == CPUFAMILY_ARM_TUPAI || cpuFamily == CPUFAMILY_ARM_TAHITI;
+}
+
+static void DOProbeAppleAVE2Reachability(void)
+{
+    if (!DOIsA18ResearchDevice()) return;
+
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        void *iokit = dlopen("/System/Library/Frameworks/IOKit.framework/IOKit", RTLD_LAZY | RTLD_LOCAL);
+        if (!iokit) {
+            gDOAppleAVE2ReachabilitySummary = @"[iOS27Research] AppleAVE2: IOKit unavailable";
+            NSLog(@"%@", gDOAppleAVE2ReachabilitySummary);
+            return;
+        }
+
+        do_cf_dictionary_ref_t (*serviceMatching)(const char *) = dlsym(iokit, "IOServiceMatching");
+        do_io_service_t (*getMatchingService)(mach_port_t, do_cf_dictionary_ref_t) = dlsym(iokit, "IOServiceGetMatchingService");
+        kern_return_t (*serviceOpen)(do_io_service_t, task_port_t, uint32_t, do_io_connect_t *) = dlsym(iokit, "IOServiceOpen");
+        kern_return_t (*serviceClose)(do_io_connect_t) = dlsym(iokit, "IOServiceClose");
+        kern_return_t (*objectRelease)(do_io_object_t) = dlsym(iokit, "IOObjectRelease");
+
+        if (!serviceMatching || !getMatchingService || !serviceOpen || !serviceClose || !objectRelease) {
+            gDOAppleAVE2ReachabilitySummary = @"[iOS27Research] AppleAVE2: required IOKit symbols unavailable";
+            NSLog(@"%@", gDOAppleAVE2ReachabilitySummary);
+            dlclose(iokit);
+            return;
+        }
+
+        const char *serviceClasses[] = { "AppleAVE2Driver", "AppleAVE2" };
+        do_io_service_t service = MACH_PORT_NULL;
+        const char *matchedClass = NULL;
+
+        for (size_t index = 0; index < sizeof(serviceClasses) / sizeof(serviceClasses[0]); index++) {
+            do_cf_dictionary_ref_t matching = serviceMatching(serviceClasses[index]);
+            if (!matching) continue;
+            service = getMatchingService(MACH_PORT_NULL, matching);
+            if (service != MACH_PORT_NULL) {
+                matchedClass = serviceClasses[index];
+                break;
+            }
+        }
+
+        if (service == MACH_PORT_NULL) {
+            gDOAppleAVE2ReachabilitySummary = @"[iOS27Research] AppleAVE2: service not found";
+            NSLog(@"%@", gDOAppleAVE2ReachabilitySummary);
+            dlclose(iokit);
+            return;
+        }
+
+        NSMutableArray<NSString *> *results = [NSMutableArray array];
+        for (uint32_t clientType = 1; clientType <= 5; clientType++) {
+            do_io_connect_t connection = MACH_PORT_NULL;
+            kern_return_t kr = serviceOpen(service, mach_task_self(), clientType, &connection);
+            BOOL opened = (kr == KERN_SUCCESS && connection != MACH_PORT_NULL);
+            [results addObject:[NSString stringWithFormat:@"type%u=0x%x%@", clientType, kr, opened ? @"(open)" : @""]];
+            if (connection != MACH_PORT_NULL) serviceClose(connection);
+        }
+
+        gDOAppleAVE2ReachabilitySummary = [NSString stringWithFormat:@"[iOS27Research] AppleAVE2 %@: %@",
+                                           matchedClass ? [NSString stringWithUTF8String:matchedClass] : @"unknown",
+                                           [results componentsJoinedByString:@" "]];
+        NSLog(@"%@", gDOAppleAVE2ReachabilitySummary);
+        objectRelease(service);
+        dlclose(iokit);
+    });
+}
+
+NSString *DOAppleAVE2ReachabilitySummary(void)
+{
+    if (!DOIsA18ResearchDevice()) return nil;
+    DOProbeAppleAVE2Reachability();
+    return gDOAppleAVE2ReachabilitySummary;
+}
+'''
+          s = s[:start] + replacement + s[end:]
+          s = s.replace('            DOProbeAppleAVE2Reachability();\n', '            (void)DOAppleAVE2ReachabilitySummary();\n')
+          m.write_text(s)
+
+          j = Path('Application/Dopamine/Jailbreak/DOJailbreaker.m')
+          s = j.read_text()
+          if '#import "DOExploit.h"' not in s:
+              s = s.replace('#import "DOExploitManager.h"\n', '#import "DOExploitManager.h"\n#import "DOExploit.h"\n')
+          marker = '    [[DOUIManager sharedInstance] sendLog:DOLocalizedString(@"Patchfinding") debug:NO];\n'
+          assert marker in s
+          if 'DOAppleAVE2ReachabilitySummary();' not in s:
+              addition = '''    NSString *appleAVE2Summary = DOAppleAVE2ReachabilitySummary();
+    if (appleAVE2Summary.length > 0) {
+        [[DOUIManager sharedInstance] sendLog:appleAVE2Summary debug:NO];
+    }
+
+'''
+              s = s.replace(marker, addition + marker)
+          j.write_text(s)
+
+          doc = Path('Research/CVE-2026-64747-AppleAVE2.md')
+          s = doc.read_text()
+          heading = '## Exact beta 3 user-input source -> size-arithmetic path'
+          if heading not in s:
+              insertion = r'''## Exact beta 3 user-input source -> size-arithmetic path
+
+Static disassembly now narrows selector 4 (`IO_Prepare`) to a concrete request-controlled dimension pair.
+
+`AppleAVE2UserClient::IO_Prepare` forwards four substructures from the structured request into `AVE_Client_Prepare`:
+
+- request `+0x18`
+- request `+0x228`
+- request `+0x338`
+- request `+0x28`
+
+The large configuration block at request `+0x338` is copied into the live AVE client state. Two 32-bit fields then map directly as:
+
+- request `+0x374` -> client state `+0x16bc` (`dimension0`)
+- request `+0x378` -> client state `+0x16c0` (`dimension1`)
+
+Those two values are loaded together and passed directly as arguments 4 and 5 (`w3`/`w4`) to `AVE_CalcBufSizeOfCodedData`; no arithmetic transform is applied before the call. The neutral names `dimension0` and `dimension1` are used until width/height ordering is independently proven.
+
+### Arithmetic delta
+
+The beta 3 implementation performs the dimension product with a 32-bit `mul` and has no corresponding product-range rejection before continuing. Beta 4 replaces that operation with a widened signed multiply (`smull`) and checks the 64-bit product before use, branching to the newly added `pixel area overflow` error path when the result is outside the accepted signed-32-bit range.
+
+This materially strengthens the static source-to-sink case: ordinary structured `IO_Prepare` input controls the exact pair used by arithmetic that was hardened between beta 3 and beta 4.
+
+It still does **not** establish memory corruption, kernel read/write, or exploitability on physical hardware. No overflowing values are sent by the in-app reachability probe; that probe only opens and closes AppleAVE2 user clients.
+
+'''
+              s = s.replace('## Validation rubric\n', insertion + '## Validation rubric\n')
+              s = s.replace('- [ ] A minimal userland input has been shown to reach one of the vulnerable beta 3 calculations and reproduce the unsafe arithmetic/corruption on the target device.', '- [x] Static selector/request tracing shows `IO_Prepare` request offsets `+0x374/+0x378` reaching the beta 3 dimension-product calculation.\n- [ ] Physical-device testing has reproduced a security-relevant corruption or useful primitive from that arithmetic path.')
+          doc.write_text(s)
+
+          # One-shot helper: remove this workflow from the resulting commit so it cannot loop.
+          Path('.github/workflows/a18-research-ui-patch.yml').unlink()
+          PY
+
+          git diff --check
+          git diff -- Application/Dopamine/Jailbreak/DOExploit.h Application/Dopamine/Jailbreak/DOExploit.m Application/Dopamine/Jailbreak/DOJailbreaker.m Research/CVE-2026-64747-AppleAVE2.md
+
+      - name: Commit surgical research update
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'Zyn'
+          git config user.email 'bobbytatum999@gmail.com'
+          git add Application/Dopamine/Jailbreak/DOExploit.h \
+                  Application/Dopamine/Jailbreak/DOExploit.m \
+                  Application/Dopamine/Jailbreak/DOJailbreaker.m \
+                  Research/CVE-2026-64747-AppleAVE2.md \
+                  .github/workflows/a18-research-ui-patch.yml
+          git commit -m 'Surface safe A18 AppleAVE2 research diagnostics'
+          git push origin HEAD:iphone16-ios27-v2
