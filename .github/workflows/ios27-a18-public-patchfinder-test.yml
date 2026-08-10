@@ -91,7 +91,7 @@ jobs:
               rc=$?
               set -e
 
-              patches="$(grep -Eo '[0-9]+ patches' "$log" | tail -1 | awk '{print $1}' || true)"
+              patches="$(grep -Eo '[0-9]+( total)? patches' "$log" | tail -1 | grep -Eo '^[0-9]+' || true)"
               functions="$(grep -Eo '[0-9]+ functions found' "$log" | tail -1 | awk '{print $1}' || true)"
               not_found="$(grep -c -- 'Not found' "$log" || true)"
               [[ -n "$patches" ]] || patches=0
