@@ -7,6 +7,7 @@ on:
       - iphone16-ios27-v2
     paths:
       - '.github/workflows/ios27-ave-firmware-diff.yml'
+      - 'Research/tools/ave_firmware_bound_map.py'
 
 permissions:
   contents: read
@@ -88,6 +89,22 @@ jobs:
             fi
           done < <(find firmware/b3 -type f -name 'AppleAVE2FW_H17*.im4p' | sort)
 
+      - name: Validate firmware CodedData size-bound handling
+        shell: bash
+        run: |
+          set -euxo pipefail
+          B3_PAYLOAD="$(find payload/b3 -type f -name 'AppleAVE2FW_H17*.im4p.bin' -print -quit)"
+          B4_PAYLOAD="$(find payload/b4 -type f -name 'AppleAVE2FW_H17*.im4p.bin' -print -quit)"
+          test -s "$B3_PAYLOAD"
+          test -s "$B4_PAYLOAD"
+          python3 Research/tools/ave_firmware_bound_map.py \
+            "$B3_PAYLOAD" "$B4_PAYLOAD" \
+            report/appleave2-firmware-codeddata-bound.md
+          grep -Fq 'beta3 ProcessTranscodeStart' report/appleave2-firmware-codeddata-bound.md
+          grep -Fq 'beta3 SetTranscode' report/appleave2-firmware-codeddata-bound.md
+          grep -Fq 'produced-size components' report/appleave2-firmware-codeddata-bound.md
+          grep -Fq 'strong counterevidence against treating the CodedData undersized-allocation path alone as the corruption primitive' report/appleave2-firmware-codeddata-bound.md
+
       - name: Build firmware diff summary
         shell: bash
         run: |
@@ -98,6 +115,8 @@ jobs:
             echo 'Static restore-image analysis only; no device interaction.'
             echo
             cat report/comparison.txt
+            echo
+            cat report/appleave2-firmware-codeddata-bound.md
             echo
             echo '## Fingerprints'
             echo '```'
