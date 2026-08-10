@@ -1,4 +1,4 @@
-name: iOS27 A18 AVE arithmetic hardening validation
+name: iOS27 A18 AVE arithmetic guard validation
 
 on:
   workflow_dispatch:
@@ -8,6 +8,7 @@ on:
     paths:
       - '.github/workflows/ios27-ave-arithmetic-guard.yml'
       - 'Research/tools/ave_arithmetic_guard_map.py'
+      - 'Research/tools/test_ave_arithmetic_guard_map.py'
 
 permissions:
   contents: read
@@ -23,6 +24,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Run arithmetic detector regression tests
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python3 -m unittest -v Research/tools/test_ave_arithmetic_guard_map.py
 
       - name: Install ipsw research toolkit
         shell: bash
@@ -65,7 +72,8 @@ jobs:
             report/appleave2-arithmetic-hardening.md
           grep -Fq 'beta3 reaches a 32-bit multiply' report/appleave2-arithmetic-hardening.md
           grep -Fq 'beta4 adds a signed 64-bit width×height multiply' report/appleave2-arithmetic-hardening.md
-          grep -Fq 'rejecting range branch' report/appleave2-arithmetic-hardening.md
+          grep -Fq 'branches on that derived range value' report/appleave2-arithmetic-hardening.md
+          grep -Fq 'register-linked SMULL → LSR #31 → CBNZ data flow' report/appleave2-arithmetic-hardening.md
           grep -Fq 'does not derive a triggering width/height pair' report/appleave2-arithmetic-hardening.md
 
       - name: Upload arithmetic report
