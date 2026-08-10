@@ -1,0 +1,68 @@
+name: iOS27 A18 AVE command submission validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - iphone16-ios27-v2
+    paths:
+      - '.github/workflows/ios27-ave-command-submission.yml'
+      - 'Research/tools/ave_command_submission_map.py'
+
+permissions:
+  contents: read
+
+jobs:
+  validate-command-submission:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      B3_URL: https://updates.cdn-apple.com/2026SpringSeed/fullrestores/140-35950/D135F5B5-C2BE-4630-8AE9-C78A6F0E8381/iPhone17%2C3_27.0_24A5380h_Restore.ipsw
+      B4_URL: https://updates.cdn-apple.com/2026SpringSeed/fullrestores/140-57108/5E816D0E-89BB-4B95-8825-6A3EDF22E509/iPhone17%2C3_27.0_24A5390f_Restore.ipsw
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install ipsw research toolkit
+        shell: bash
+        run: |
+          set -euxo pipefail
+          brew tap blacktop/tap
+          brew trust blacktop/tap
+          brew install blacktop/tap/ipsw
+
+      - name: Extract beta3 and beta4 AppleAVE2
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p firmware/b3 firmware/b4 report/kexts/b3 report/kexts/b4
+          ipsw --no-color extract --remote "$B3_URL" --kernel -o firmware/b3
+          ipsw --no-color extract --remote "$B4_URL" --kernel -o firmware/b4
+          B3_KERNEL="$(find firmware/b3 -type f -name 'kernelcache.release.*' -print -quit)"
+          B4_KERNEL="$(find firmware/b4 -type f -name 'kernelcache.release.*' -print -quit)"
+          ipsw --no-color kernel extract "$B3_KERNEL" com.apple.driver.AppleAVE2 --force -o report/kexts/b3
+          ipsw --no-color kernel extract "$B4_KERNEL" com.apple.driver.AppleAVE2 --force -o report/kexts/b4
+          test -s report/kexts/b3/com.apple.driver.AppleAVE2
+          test -s report/kexts/b4/com.apple.driver.AppleAVE2
+
+      - name: Prove Prepare Build Send path
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python3 Research/tools/ave_command_submission_map.py \
+            report/kexts/b3/com.apple.driver.AppleAVE2 \
+            report/kexts/b4/com.apple.driver.AppleAVE2 \
+            report/appleave2-command-submission.md
+          grep -Fq 'ProcessReadyCmd_Process -> AVE_CHM_PrepareDataInfo -> SendFwCmd_Process' report/appleave2-command-submission.md
+          grep -Fq 'same function index' report/appleave2-command-submission.md
+          grep -Fq 'fwCmdSlot' report/appleave2-command-submission.md
+          grep -Fq 'does not prove a firmware out-of-bounds write' report/appleave2-command-submission.md
+
+      - name: Upload submission report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios27-a18-ave-command-submission
+          path: report
+          retention-days: 14
