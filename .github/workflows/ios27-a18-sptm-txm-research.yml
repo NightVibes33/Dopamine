@@ -8,6 +8,7 @@ on:
     paths:
       - '.github/workflows/ios27-a18-sptm-txm-research.yml'
       - 'Research/tools/a18_sptm_port_probe.py'
+      - 'Research/tools/a18_sptm_lock_pair_probe.py'
 
 permissions:
   contents: read
@@ -73,28 +74,29 @@ jobs:
             test -s "$sptm"
             python3 Research/tools/a18_sptm_port_probe.py "$sptm" \
               --output "report/a18-sptm/${label}.json" | tee "report/a18-sptm/${label}.txt"
+            python3 Research/tools/a18_sptm_lock_pair_probe.py "$sptm" \
+              --output "report/a18-sptm/${label}-lock-pair.json" | tee "report/a18-sptm/${label}-lock-pair.txt"
           done
 
           python3 - <<'PY'
           import json
           from pathlib import Path
 
-          required = (
-              'ctrr_lock_sptm',
-              'lock_regs_apply',
-              'sptm_determine_kernel_ctrr',
-          )
-          rows = []
+          required = ('ctrr_lock_sptm', 'lock_regs_apply', 'sptm_determine_kernel_ctrr')
           for label in ('b3', 'b4', 'b5'):
               data = json.loads(Path(f'report/a18-sptm/{label}.json').read_text())
+              pair = json.loads(Path(f'report/a18-sptm/{label}-lock-pair.json').read_text())
               confidence = data.get('confidence', {})
               missing = [key for key in required if confidence.get(key) != 'high']
+              if pair.get('confidence') != 'high':
+                  missing.append('ctrr_lock_pair')
               ctrr = data.get('a18', {}).get('ctrr_lock_sptm') or {}
               apply = data.get('a18', {}).get('lock_regs_apply_candidate') or {}
-              rows.append((label, ctrr.get('fileoff'), apply.get('fileoff'), missing))
-
-          for label, ctrr, apply, missing in rows:
-              print(f'{label}: ctrr_lock_sptm={ctrr:#x} lock_regs_apply={apply:#x} missing={missing}')
+              secondary = pair.get('secondary') or {}
+              print(
+                  f"{label}: primary={ctrr.get('fileoff'):#x} secondary={secondary.get('fileoff'):#x} "
+                  f"lock_regs_apply={apply.get('fileoff'):#x} missing={missing}"
+              )
               if missing:
                   raise SystemExit(f'{label}: A18 SPTM structural validation failed: {missing}')
           PY
@@ -176,9 +178,12 @@ jobs:
                   hits=sum(r[3] for r in subset)
                   out.append(f'- {component.upper()}: {hits}/{len(subset)} reference anchors present')
               data=json.loads(Path(f'report/a18-sptm/{build}.json').read_text())
+              pair=json.loads(Path(f'report/a18-sptm/{build}-lock-pair.json').read_text())
               ctrr=data['a18']['ctrr_lock_sptm']
               apply=data['a18']['lock_regs_apply_candidate']
-              out.append(f"- A18 ctrr_lock_sptm: fileoff `0x{ctrr['fileoff']:x}`, confidence `{data['confidence']['ctrr_lock_sptm']}`")
+              secondary=pair['secondary']
+              out.append(f"- A18 primary CTRR lock: fileoff `0x{ctrr['fileoff']:x}`, confidence `{data['confidence']['ctrr_lock_sptm']}`")
+              out.append(f"- A18 secondary CTRR lock: fileoff `0x{secondary['fileoff']:x}`, MSR count `{secondary['secondary_msr_count']}`, confidence `{pair['confidence']}`")
               out.append(f"- A18 lock-reg apply: fileoff `0x{apply['fileoff']:x}`, barriers `{apply['dsb_sy_count'] + apply['isb_count']}`, SoC-register reads `{apply['soc_reg_mrs_count']}`, confidence `{data['confidence']['lock_regs_apply']}`")
               out.append('')
           Path('report/summary.md').write_text('\n'.join(out)+'\n')
