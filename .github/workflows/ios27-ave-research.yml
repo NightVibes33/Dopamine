@@ -8,6 +8,7 @@ on:
     paths:
       - '.github/workflows/ios27-ave-research.yml'
       - 'Research/tools/ave_validation_map.py'
+      - 'Research/tools/ave_userclient_map.py'
 
 permissions:
   contents: read
@@ -128,6 +129,14 @@ jobs:
             report/strings/com.apple.driver.AppleAVE2-b3-b4.diff \
             report/appleave2-validation-map.md
 
+      - name: Map beta3 AppleAVE2 user-client paths
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python3 Research/tools/ave_userclient_map.py \
+            report/kexts/b3/com.apple.driver.AppleAVE2 \
+            report/appleave2-userclient-map.md
+
       - name: Build research summary
         shell: bash
         run: |
@@ -136,7 +145,7 @@ jobs:
             echo '# iPhone 16 iOS 27 AVE research'
             echo
             echo 'Target vulnerable candidate: CVE-2026-64747 (AVEVideoEncoder).'
-            echo 'This workflow only performs firmware/KEXT comparison; it does not claim exploitability.'
+            echo 'This workflow performs static firmware/KEXT analysis only; it does not claim exploitability.'
             echo
             echo '## Firmware points'
             echo '- 24A5380h — iOS 27 beta 3 — 2026-07-06'
@@ -153,6 +162,9 @@ jobs:
             echo
             echo '## Beta4 validation-function map'
             cat report/appleave2-validation-map.md || true
+            echo
+            echo '## Beta3 user-client source-to-sink map'
+            cat report/appleave2-userclient-map.md || true
           } > report/summary.md
           cat report/summary.md
 
