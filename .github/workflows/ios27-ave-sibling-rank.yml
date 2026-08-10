@@ -8,6 +8,7 @@ on:
     paths:
       - '.github/workflows/ios27-ave-sibling-rank.yml'
       - 'Research/tools/ave_hardening_family_rank.py'
+      - 'Research/tools/ave_lrb_flow_map.py'
 
 permissions:
   contents: read
@@ -69,10 +70,26 @@ jobs:
           grep -Fq 'triage heuristic, not exploitability proof' report/appleave2-sibling-hardening-triage.md
           grep -Fq 'CodedData is intentionally excluded' report/appleave2-sibling-hardening-triage.md
 
-      - name: Upload sibling triage report
+      - name: Prove LRB source-to-allocation flow
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python3 Research/tools/ave_lrb_flow_map.py \
+            report/kexts/b3/com.apple.driver.AppleAVE2 \
+            report/kexts/b4/com.apple.driver.AppleAVE2 \
+            report/appleave2-lrb-flow.md
+          grep -Fq 'selector/session width `+0x16bc`' report/appleave2-lrb-flow.md
+          grep -Fq 'height `+0x16c0`' report/appleave2-lrb-flow.md
+          grep -Fq 'surface descriptor `+0x31c`' report/appleave2-lrb-flow.md
+          grep -Fq 'source -> pre-hardening sizing -> concrete allocation-size chain' report/appleave2-lrb-flow.md
+          grep -Fq 'does not derive a triggering dimension pair' report/appleave2-lrb-flow.md
+
+      - name: Upload sibling triage reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ios27-a18-ave-sibling-hardening-triage
-          path: report/appleave2-sibling-hardening-triage.md
+          path: |
+            report/appleave2-sibling-hardening-triage.md
+            report/appleave2-lrb-flow.md
           retention-days: 14
