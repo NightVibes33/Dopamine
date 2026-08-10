@@ -1,0 +1,148 @@
+name: iOS27 A18 SPTM TXM research
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - iphone16-ios27-v2
+    paths:
+      - '.github/workflows/ios27-a18-sptm-txm-research.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  sptm-txm-scan:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      B3_URL: https://updates.cdn-apple.com/2026SpringSeed/fullrestores/140-35950/D135F5B5-C2BE-4630-8AE9-C78A6F0E8381/iPhone17%2C3_27.0_24A5380h_Restore.ipsw
+      B4_URL: https://updates.cdn-apple.com/2026SpringSeed/fullrestores/140-57108/5E816D0E-89BB-4B95-8825-6A3EDF22E509/iPhone17%2C3_27.0_24A5390f_Restore.ipsw
+      B5_URL: https://updates.cdn-apple.com/2026SpringSeed/fullrestores/140-86338/57B34BF9-3BF5-4B47-BCCA-81B282175957/iPhone17%2C3_27.0_24A5408d_Restore.ipsw
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install ipsw research toolkit
+        shell: bash
+        run: |
+          set -euxo pipefail
+          brew tap blacktop/tap
+          brew trust blacktop/tap
+          brew install blacktop/tap/ipsw
+          ipsw version
+
+      - name: Remote-extract SPTM and TXM
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p firmware/b3 firmware/b4 firmware/b5 report/raw report/strings
+          ipsw --no-color extract --remote "$B3_URL" --sptm -o firmware/b3
+          ipsw --no-color extract --remote "$B4_URL" --sptm -o firmware/b4
+          ipsw --no-color extract --remote "$B5_URL" --sptm -o firmware/b5
+          find firmware -maxdepth 5 -type f -print | sort | tee report/extracted-files.txt
+
+      - name: Decode firmware payloads
+        shell: bash
+        run: |
+          set -euxo pipefail
+          for label in b3 b4 b5; do
+            mkdir -p "report/raw/$label" "report/strings/$label"
+            while IFS= read -r input; do
+              base="$(basename "$input")"
+              output="report/raw/$label/${base}.raw"
+              if file "$input" | grep -q 'Mach-O'; then
+                cp "$input" "$output"
+              else
+                ipsw --no-color img4 im4p extract "$input" --output "$output" || cp "$input" "$output"
+              fi
+              strings -a "$output" | sort -u > "report/strings/$label/${base}.txt" || true
+              file "$output" | tee -a "report/${label}-file-types.txt"
+              shasum -a 256 "$output" | tee -a "report/${label}-hashes.txt"
+            done < <(find "firmware/$label" -type f -print)
+          done
+
+      - name: Scan iOS27 patchfinder anchors
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > report/sptm-anchors.txt <<'EOF'
+          SecurePageTableMonitor
+          ctrr_lock_boot
+          CTRR-A already enabled
+          cpu_lock_system_registers
+          sptm_determine_kernel_ctrr
+          kernel-ctrr-to-be-enabled
+          xnu_ro_pagetables_begin
+          protected_write
+          PPL_MAGIC_VALUE
+          page_tables.c
+          sptm_init
+          assert_amcc_cache_disabled
+          /chosen/lock-regs
+          bootstrap_unmap_io_region
+          EOF
+
+          cat > report/txm-anchors.txt <<'EOF'
+          TrustedExecutionMonitor
+          resolved system platform identity
+          unsupported device type
+          platform code only policy
+          com.apple.private.amfi.can-load-cdhash
+          get-task-allow
+          dynamic-codesigning
+          pmap
+          trustcache
+          EOF
+
+          : > report/anchor-matrix.tsv
+          printf 'build\tcomponent\tanchor\tfound\n' >> report/anchor-matrix.tsv
+
+          for label in b3 b4 b5; do
+            for component in sptm txm; do
+              if [[ "$component" == sptm ]]; then anchors=report/sptm-anchors.txt; else anchors=report/txm-anchors.txt; fi
+              while IFS= read -r anchor; do
+                [[ -n "$anchor" ]] || continue
+                found=0
+                if grep -R -F -q -- "$anchor" "report/strings/$label"; then found=1; fi
+                printf '%s\t%s\t%s\t%s\n' "$label" "$component" "$anchor" "$found" >> report/anchor-matrix.tsv
+              done < "$anchors"
+            done
+          done
+
+          column -t -s $'\t' report/anchor-matrix.tsv | tee report/anchor-matrix.txt
+
+      - name: Build compatibility summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          rows=[]
+          for line in Path('report/anchor-matrix.tsv').read_text().splitlines()[1:]:
+              build, component, anchor, found = line.split('\t')
+              rows.append((build, component, anchor, int(found)))
+          out=['# iPhone 16 / A18 iOS 27 SPTM-TXM compatibility scan','',
+               'This is an offline anchor-compatibility scan only. It does not bypass SPTM/TXM and does not claim jailbreak support.','']
+          for build in ('b3','b4','b5'):
+              out.append(f'## {build}')
+              for component in ('sptm','txm'):
+                  subset=[r for r in rows if r[0]==build and r[1]==component]
+                  hits=sum(r[3] for r in subset)
+                  out.append(f'- {component.upper()}: {hits}/{len(subset)} reference anchors present')
+                  for _,_,anchor,found in subset:
+                      if found:
+                          out.append(f'  - FOUND `{anchor}`')
+              out.append('')
+          Path('report/summary.md').write_text('\n'.join(out)+'\n')
+          print('\n'.join(out))
+          PY
+
+      - name: Upload SPTM TXM research report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios27-a18-sptm-txm-research
+          path: report
+          retention-days: 14
