@@ -1,0 +1,70 @@
+name: iOS27 A18 AVE allocation sink research
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - iphone16-ios27-v2
+    paths:
+      - '.github/workflows/ios27-ave-sink-research.yml'
+      - 'Research/tools/ave_codeddata_sink_map.py'
+      - 'Research/tools/ave_dimension_flow_map.py'
+
+permissions:
+  contents: read
+
+jobs:
+  sink-map:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      B3_URL: https://updates.cdn-apple.com/2026SpringSeed/fullrestores/140-35950/D135F5B5-C2BE-4630-8AE9-C78A6F0E8381/iPhone17%2C3_27.0_24A5380h_Restore.ipsw
+      B4_URL: https://updates.cdn-apple.com/2026SpringSeed/fullrestores/140-57108/5E816D0E-89BB-4B95-8825-6A3EDF22E509/iPhone17%2C3_27.0_24A5390f_Restore.ipsw
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install ipsw research toolkit
+        shell: bash
+        run: |
+          set -euxo pipefail
+          brew tap blacktop/tap
+          brew trust blacktop/tap
+          brew install blacktop/tap/ipsw
+
+      - name: Extract AppleAVE2 from beta3 and beta4
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p firmware/b3 firmware/b4 report/kexts/b3 report/kexts/b4
+          ipsw --no-color extract --remote "$B3_URL" --kernel -o firmware/b3
+          ipsw --no-color extract --remote "$B4_URL" --kernel -o firmware/b4
+          B3_KERNEL="$(find firmware/b3 -type f -name 'kernelcache.release.*' -print -quit)"
+          B4_KERNEL="$(find firmware/b4 -type f -name 'kernelcache.release.*' -print -quit)"
+          test -s "$B3_KERNEL"
+          test -s "$B4_KERNEL"
+          ipsw --no-color kernel extract "$B3_KERNEL" com.apple.driver.AppleAVE2 --force -o report/kexts/b3
+          ipsw --no-color kernel extract "$B4_KERNEL" com.apple.driver.AppleAVE2 --force -o report/kexts/b4
+          test -s report/kexts/b3/com.apple.driver.AppleAVE2
+          test -s report/kexts/b4/com.apple.driver.AppleAVE2
+
+      - name: Prove coded-data size reaches surface allocation
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python3 Research/tools/ave_codeddata_sink_map.py \
+            report/kexts/b3/com.apple.driver.AppleAVE2 \
+            report/kexts/b4/com.apple.driver.AppleAVE2 \
+            report/appleave2-codeddata-sink.md
+          grep -Fq 'descriptor `+0x16c`' report/appleave2-codeddata-sink.md
+          grep -Fq 'AVE_CreateExternalOutSurfaces' report/appleave2-codeddata-sink.md
+          grep -Fq 'required size passed as argument 4' report/appleave2-codeddata-sink.md
+          cat report/appleave2-codeddata-sink.md
+
+      - name: Upload allocation-sink report
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios27-a18-ave-allocation-sink
+          path: report/appleave2-codeddata-sink.md
+          retention-days: 14
