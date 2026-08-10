@@ -1,0 +1,85 @@
+name: iOS27 A18 AVE LFS geometry provenance
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - iphone16-ios27-v2
+    paths:
+      - '.github/workflows/ios27-ave-lfs-geometry-provenance.yml'
+      - 'Research/tools/ave_lfs_geometry_provenance.py'
+      - 'Research/tools/ave_dimension_flow_map.py'
+
+permissions:
+  contents: read
+
+jobs:
+  validate-lfs-geometry-provenance:
+    runs-on: macos-latest
+    timeout-minutes: 75
+    env:
+      B3_URL: https://updates.cdn-apple.com/2026SpringSeed/fullrestores/140-35950/D135F5B5-C2BE-4630-8AE9-C78A6F0E8381/iPhone17%2C3_27.0_24A5380h_Restore.ipsw
+      B4_URL: https://updates.cdn-apple.com/2026SpringSeed/fullrestores/140-57108/5E816D0E-89BB-4B95-8825-6A3EDF22E509/iPhone17%2C3_27.0_24A5390f_Restore.ipsw
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install ipsw research toolkit
+        shell: bash
+        run: |
+          set -euxo pipefail
+          brew tap blacktop/tap
+          brew trust blacktop/tap
+          brew install blacktop/tap/ipsw
+
+      - name: Extract beta3 and beta4 AppleAVE2
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p kernels/b3 kernels/b4 report/kexts/b3 report/kexts/b4 fw-container/b3 fw-container/b4 report/fw/b3 report/fw/b4
+          ipsw --no-color extract --remote "$B3_URL" --kernel -o kernels/b3
+          ipsw --no-color extract --remote "$B4_URL" --kernel -o kernels/b4
+          B3_KERNEL="$(find kernels/b3 -type f -name 'kernelcache.release.*' -print -quit)"
+          B4_KERNEL="$(find kernels/b4 -type f -name 'kernelcache.release.*' -print -quit)"
+          test -s "$B3_KERNEL"
+          test -s "$B4_KERNEL"
+          ipsw --no-color kernel extract "$B3_KERNEL" com.apple.driver.AppleAVE2 --force -o report/kexts/b3
+          ipsw --no-color kernel extract "$B4_KERNEL" com.apple.driver.AppleAVE2 --force -o report/kexts/b4
+
+      - name: Extract H17 AVE firmware
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ipsw --no-color extract --remote "$B3_URL" --pattern 'Firmware/ave/AppleAVE2FW_H17.*\.im4p$' -o fw-container/b3
+          ipsw --no-color extract --remote "$B4_URL" --pattern 'Firmware/ave/AppleAVE2FW_H17.*\.im4p$' -o fw-container/b4
+          B3_FW="$(find fw-container/b3 -type f -name 'AppleAVE2FW_H17*.im4p' -print -quit)"
+          B4_FW="$(find fw-container/b4 -type f -name 'AppleAVE2FW_H17*.im4p' -print -quit)"
+          test -s "$B3_FW"
+          test -s "$B4_FW"
+          ipsw --no-color img4 im4p extract "$B3_FW" --output report/fw/b3/AppleAVE2FW_H17.bin
+          ipsw --no-color img4 im4p extract "$B4_FW" --output report/fw/b4/AppleAVE2FW_H17.bin
+
+      - name: Prove host and firmware geometry provenance separately
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python3 Research/tools/ave_lfs_geometry_provenance.py \
+            report/kexts/b3/com.apple.driver.AppleAVE2 \
+            report/kexts/b4/com.apple.driver.AppleAVE2 \
+            report/fw/b3/AppleAVE2FW_H17.bin \
+            report/fw/b4/AppleAVE2FW_H17.bin \
+            report/appleave2-lfs-geometry-provenance.md
+          grep -Fq 'selector-4 request width/height: `+0x374` / `+0x378`' report/appleave2-lfs-geometry-provenance.md
+          grep -Fq 'session width/height: `+0x16bc` / `+0x16c0`' report/appleave2-lfs-geometry-provenance.md
+          grep -Fq 'm_psSequenceInits.uWidthInMbs' report/appleave2-lfs-geometry-provenance.md
+          grep -Fq 'Still not proven' report/appleave2-lfs-geometry-provenance.md
+          grep -Fq 'exact cross-IPC field equivalence' report/appleave2-lfs-geometry-provenance.md
+
+      - name: Upload provenance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios27-a18-ave-lfs-geometry-provenance
+          path: report/appleave2-lfs-geometry-provenance.md
+          retention-days: 14
