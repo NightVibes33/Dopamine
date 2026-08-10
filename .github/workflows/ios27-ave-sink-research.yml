@@ -9,6 +9,7 @@ on:
       - '.github/workflows/ios27-ave-sink-research.yml'
       - 'Research/tools/ave_codeddata_sink_map.py'
       - 'Research/tools/ave_dimension_flow_map.py'
+      - 'Research/tools/ave_arithmetic_guard_map.py'
 
 permissions:
   contents: read
@@ -62,9 +63,24 @@ jobs:
           grep -Fq 'required size passed as argument 4' report/appleave2-codeddata-sink.md
           cat report/appleave2-codeddata-sink.md
 
+      - name: Compare beta3 and beta4 dimension arithmetic
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python3 Research/tools/ave_arithmetic_guard_map.py \
+            report/kexts/b3/com.apple.driver.AppleAVE2 \
+            report/kexts/b4/com.apple.driver.AppleAVE2 \
+            report/appleave2-arithmetic-hardening.md
+          grep -Fq '32-bit multiply' report/appleave2-arithmetic-hardening.md
+          grep -Fq 'signed 64-bit width×height multiply' report/appleave2-arithmetic-hardening.md
+          grep -Fq 'does not derive a triggering width/height pair' report/appleave2-arithmetic-hardening.md
+          cat report/appleave2-arithmetic-hardening.md
+
       - name: Upload allocation-sink report
         uses: actions/upload-artifact@v4
         with:
           name: ios27-a18-ave-allocation-sink
-          path: report/appleave2-codeddata-sink.md
+          path: |
+            report/appleave2-codeddata-sink.md
+            report/appleave2-arithmetic-hardening.md
           retention-days: 14
