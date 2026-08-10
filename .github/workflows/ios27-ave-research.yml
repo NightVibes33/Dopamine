@@ -129,13 +129,16 @@ jobs:
             report/strings/com.apple.driver.AppleAVE2-b3-b4.diff \
             report/appleave2-validation-map.md
 
-      - name: Map beta3 AppleAVE2 user-client paths
+      - name: Compare AppleAVE2 user-client paths
         shell: bash
         run: |
           set -euxo pipefail
           python3 Research/tools/ave_userclient_map.py \
             report/kexts/b3/com.apple.driver.AppleAVE2 \
-            report/appleave2-userclient-map.md
+            report/appleave2-userclient-map-b3.md
+          python3 Research/tools/ave_userclient_map.py \
+            report/kexts/b4/com.apple.driver.AppleAVE2 \
+            report/appleave2-userclient-map-b4.md
 
       - name: Build research summary
         shell: bash
@@ -164,7 +167,10 @@ jobs:
             cat report/appleave2-validation-map.md || true
             echo
             echo '## Beta3 user-client source-to-sink map'
-            cat report/appleave2-userclient-map.md || true
+            cat report/appleave2-userclient-map-b3.md || true
+            echo
+            echo '## Beta4 user-client source-to-sink map'
+            cat report/appleave2-userclient-map-b4.md || true
           } > report/summary.md
           cat report/summary.md
 
