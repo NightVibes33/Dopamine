@@ -1,0 +1,142 @@
+name: iOS27 A18 public patchfinder compatibility
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - iphone16-ios27-v2
+    paths:
+      - '.github/workflows/ios27-a18-public-patchfinder-test.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  compatibility:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      ICH_COMMIT: b3c2db8d160c94d802393b87d0377f3623fff54b
+      B3_URL: https://updates.cdn-apple.com/2026SpringSeed/fullrestores/140-35950/D135F5B5-C2BE-4630-8AE9-C78A6F0E8381/iPhone17%2C3_27.0_24A5380h_Restore.ipsw
+      B4_URL: https://updates.cdn-apple.com/2026SpringSeed/fullrestores/140-57108/5E816D0E-89BB-4B95-8825-6A3EDF22E509/iPhone17%2C3_27.0_24A5390f_Restore.ipsw
+      B5_URL: https://updates.cdn-apple.com/2026SpringSeed/fullrestores/140-86338/57B34BF9-3BF5-4B47-BCCA-81B282175957/iPhone17%2C3_27.0_24A5408d_Restore.ipsw
+
+    steps:
+      - name: Checkout Dopamine research branch
+        uses: actions/checkout@v4
+
+      - name: Install firmware toolkit
+        shell: bash
+        run: |
+          set -euxo pipefail
+          brew tap blacktop/tap
+          brew trust blacktop/tap
+          brew install blacktop/tap/ipsw
+          ipsw version
+
+      - name: Pin public reference patchfinders
+        shell: bash
+        run: |
+          set -euxo pipefail
+          git clone --filter=blob:none --no-checkout https://github.com/Pa7r0n/ICH_A12_plus_Ramdisk.git /tmp/ich
+          git -C /tmp/ich checkout "$ICH_COMMIT" -- patch/sptm_patchfinder.py patch/txm_patchfinder.py
+          shasum -a 256 /tmp/ich/patch/sptm_patchfinder.py /tmp/ich/patch/txm_patchfinder.py | tee reference-patchfinder-sha256.txt
+
+      - name: Extract A18 SPTM and TXM
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p firmware/b3 firmware/b4 firmware/b5 report/raw report/logs
+          ipsw --no-color extract --remote "$B3_URL" --sptm -o firmware/b3
+          ipsw --no-color extract --remote "$B4_URL" --sptm -o firmware/b4
+          ipsw --no-color extract --remote "$B5_URL" --sptm -o firmware/b5
+
+          for label in b3 b4 b5; do
+            mkdir -p "report/raw/$label"
+            while IFS= read -r input; do
+              base="$(basename "$input")"
+              output="report/raw/$label/${base}.raw"
+              if file "$input" | grep -q 'Mach-O'; then
+                cp "$input" "$output"
+              else
+                ipsw --no-color img4 im4p extract "$input" --output "$output" || cp "$input" "$output"
+              fi
+            done < <(find "firmware/$label" -type f -print)
+          done
+
+      - name: Run reference patchfinders offline
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'build\tcomponent\texit\tpatches\tfunctions\tnot_found\n' > report/results.tsv
+
+          for label in b3 b4 b5; do
+            sptm="$(find "report/raw/$label" -type f -iname '*sptm*release*.raw' -print -quit)"
+            txm="$(find "report/raw/$label" -type f -iname '*txm*iphoneos*release*.raw' -print -quit)"
+            test -s "$sptm"
+            test -s "$txm"
+
+            for component in sptm txm; do
+              if [[ "$component" == sptm ]]; then
+                script=/tmp/ich/patch/sptm_patchfinder.py
+                input="$sptm"
+              else
+                script=/tmp/ich/patch/txm_patchfinder.py
+                input="$txm"
+              fi
+
+              log="report/logs/${label}-${component}.txt"
+              set +e
+              python3 "$script" "$input" > "$log" 2>&1
+              rc=$?
+              set -e
+
+              patches="$(grep -Eo '[0-9]+ patches' "$log" | tail -1 | awk '{print $1}' || true)"
+              functions="$(grep -Eo '[0-9]+ functions found' "$log" | tail -1 | awk '{print $1}' || true)"
+              not_found="$(grep -c -- 'Not found' "$log" || true)"
+              [[ -n "$patches" ]] || patches=0
+              [[ -n "$functions" ]] || functions=0
+              printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$label" "$component" "$rc" "$patches" "$functions" "$not_found" >> report/results.tsv
+            done
+          done
+
+          column -t -s $'\t' report/results.tsv | tee report/results.txt
+
+      - name: Summarize compatibility
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          rows=[]
+          for line in Path('report/results.tsv').read_text().splitlines()[1:]:
+              build, component, rc, patches, funcs, nf = line.split('\t')
+              rows.append((build, component, int(rc), int(patches), int(funcs), int(nf)))
+          out=[
+              '# A18 iOS 27 public SPTM/TXM patchfinder compatibility',
+              '',
+              'Reference source: Pa7r0n/ICH_A12_plus_Ramdisk pinned at b3c2db8d160c94d802393b87d0377f3623fff54b.',
+              'The scripts are executed without an output path, so their in-memory patch proposals are not written back to firmware.',
+              'This is an offline compatibility test only and is not a live SPTM bypass.',
+              '',
+          ]
+          for build in ('b3','b4','b5'):
+              out.append(f'## {build}')
+              for row in rows:
+                  if row[0] != build: continue
+                  _, component, rc, patches, funcs, nf = row
+                  out.append(f'- {component.upper()}: exit={rc}, proposed patches={patches}, discovered functions={funcs}, explicit not-found stages={nf}')
+              out.append('')
+          Path('report/summary.md').write_text('\n'.join(out)+'\n')
+          print('\n'.join(out))
+          PY
+
+      - name: Upload compatibility report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios27-a18-public-patchfinder-compatibility
+          path: |
+            report
+            reference-patchfinder-sha256.txt
+          retention-days: 14
