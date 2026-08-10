@@ -9,6 +9,7 @@ on:
       - '.github/workflows/ios27-ave-research.yml'
       - 'Research/tools/ave_validation_map.py'
       - 'Research/tools/ave_userclient_map.py'
+      - 'Research/tools/ave_prepare_field_map.py'
 
 permissions:
   contents: read
@@ -140,6 +141,17 @@ jobs:
             report/kexts/b4/com.apple.driver.AppleAVE2 \
             report/appleave2-userclient-map-b4.md
 
+      - name: Map selector-4 frame fields to request offsets
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python3 Research/tools/ave_prepare_field_map.py \
+            report/kexts/b3/com.apple.driver.AppleAVE2 \
+            report/kexts/b4/com.apple.driver.AppleAVE2 \
+            report/appleave2-prepare-field-map.md
+          grep -Fq 'request `+0x374`' report/appleave2-prepare-field-map.md
+          grep -Fq 'request `+0x378`' report/appleave2-prepare-field-map.md
+
       - name: Build research summary
         shell: bash
         run: |
@@ -171,6 +183,9 @@ jobs:
             echo
             echo '## Beta4 user-client source-to-sink map'
             cat report/appleave2-userclient-map-b4.md || true
+            echo
+            echo '## Selector-4 request field map'
+            cat report/appleave2-prepare-field-map.md || true
           } > report/summary.md
           cat report/summary.md
 
