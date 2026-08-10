@@ -1,0 +1,87 @@
+name: iOS27 H9 userland research
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - research/ios27-h9-struct-map
+    paths:
+      - '.github/workflows/ios27-h9-userland-research.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  h9-map:
+    runs-on: macos-latest
+    timeout-minutes: 90
+    env:
+      B3_URL: https://updates.cdn-apple.com/2026SpringSeed/fullrestores/140-35950/D135F5B5-C2BE-4630-8AE9-C78A6F0E8381/iPhone17%2C3_27.0_24A5380h_Restore.ipsw
+      B4_URL: https://updates.cdn-apple.com/2026SpringSeed/fullrestores/140-57108/5E816D0E-89BB-4B95-8825-6A3EDF22E509/iPhone17%2C3_27.0_24A5390f_Restore.ipsw
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install ipsw
+        shell: bash
+        run: |
+          set -euxo pipefail
+          brew tap blacktop/tap
+          brew trust blacktop/tap
+          brew install blacktop/tap/ipsw
+
+      - name: Extract H9 encoder binaries
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p userland/b3 userland/b4 report
+          PATTERN='System/Library/VideoEncoders/(H9|H264H9)\.videoencoder$'
+          ipsw --no-color extract --remote "$B3_URL" --files --pattern "$PATTERN" -o userland/b3
+          ipsw --no-color extract --remote "$B4_URL" --files --pattern "$PATTERN" -o userland/b4
+          find userland -type f -print | sort | tee report/extracted.txt
+
+      - name: Disassemble and inventory encoder call sites
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p report/b3 report/b4
+          for label in b3 b4; do
+            find "userland/$label" -type f \( -name 'H9.videoencoder' -o -name 'H264H9.videoencoder' \) -print0 | while IFS= read -r -d '' bin; do
+              base="$(basename "$bin")"
+              prefix="report/$label/$base"
+              shasum -a 256 "$bin" > "$prefix.sha256.txt"
+              stat -f 'size=%z' "$bin" > "$prefix.size.txt"
+              nm -nm "$bin" > "$prefix.symbols.txt" 2>&1 || true
+              otool -L "$bin" > "$prefix.libs.txt" 2>&1 || true
+              otool -Iv "$bin" > "$prefix.imports.txt" 2>&1 || true
+              otool -tvV "$bin" > "$prefix.disasm.txt" 2>&1 || true
+              strings -a "$bin" | sort -u > "$prefix.strings.txt" || true
+              grep -n -E -B12 -A24 'IOConnectCallStructMethod|IOServiceOpen|S_AVE_UCInParam_(Prepare|Start)|IO_(Prepare|Start)' "$prefix.disasm.txt" > "$prefix.iokit-context.txt" || true
+              grep -n -E 'IOConnectCallStructMethod|IOServiceOpen|S_AVE_UCInParam_(Prepare|Start)|IO_(Prepare|Start)' "$prefix.strings.txt" > "$prefix.ave-strings.txt" || true
+            done
+          done
+
+      - name: Compare beta 3 and beta 4 userland encoders
+        shell: bash
+        run: |
+          set -euxo pipefail
+          for base in H9.videoencoder H264H9.videoencoder; do
+            b3="$(find userland/b3 -type f -name "$base" -print -quit)"
+            b4="$(find userland/b4 -type f -name "$base" -print -quit)"
+            if [[ -s "$b3" && -s "$b4" ]]; then
+              echo "=== $base ===" | tee -a report/summary.txt
+              printf 'b3 '; shasum -a 256 "$b3" | tee -a report/summary.txt
+              printf 'b4 '; shasum -a 256 "$b4" | tee -a report/summary.txt
+              comm -3 "report/b3/$base.strings.txt" "report/b4/$base.strings.txt" > "report/$base.strings-b3-b4.diff" || true
+            fi
+          done
+          cat report/summary.txt 2>/dev/null || true
+
+      - name: Upload H9 mapping report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios27-h9-userland-research
+          path: report
+          retention-days: 14
