@@ -33,7 +33,7 @@ jobs:
           xcode-version: latest-stable
 
       - name: Checkout
-        uses: actions/checkout@main
+        uses: actions/checkout@v4
         with:
             submodules: recursive
 
@@ -101,8 +101,9 @@ jobs:
 
       - name: Upload Artifact
         id: dopamine-latest-upload
-        uses: actions/upload-artifact@main
+        uses: actions/upload-artifact@v4
         with:
           name: Dopamine
-          path: |
-            ${{ github.workspace }}/Application/Dopamine.ipa
+          path: ${{ github.workspace }}/Application/Dopamine.ipa
+          if-no-files-found: error
+          retention-days: 14
