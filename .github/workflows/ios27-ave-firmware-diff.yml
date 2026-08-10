@@ -1,0 +1,115 @@
+name: iOS27 A18 AVE firmware diff
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - iphone16-ios27-v2
+    paths:
+      - '.github/workflows/ios27-ave-firmware-diff.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  diff-ave-firmware:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      B3_URL: https://updates.cdn-apple.com/2026SpringSeed/fullrestores/140-35950/D135F5B5-C2BE-4630-8AE9-C78A6F0E8381/iPhone17%2C3_27.0_24A5380h_Restore.ipsw
+      B4_URL: https://updates.cdn-apple.com/2026SpringSeed/fullrestores/140-57108/5E816D0E-89BB-4B95-8825-6A3EDF22E509/iPhone17%2C3_27.0_24A5390f_Restore.ipsw
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install ipsw research toolkit
+        shell: bash
+        run: |
+          set -euxo pipefail
+          brew tap blacktop/tap
+          brew trust blacktop/tap
+          brew install blacktop/tap/ipsw
+
+      - name: Remote-extract AVE firmware only
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p firmware/b3 firmware/b4 report payload/b3 payload/b4
+          ipsw --no-color extract --remote "$B3_URL" --pattern 'Firmware/ave/AppleAVE2FW_H17.*\.im4p$' -o firmware/b3
+          ipsw --no-color extract --remote "$B4_URL" --pattern 'Firmware/ave/AppleAVE2FW_H17.*\.im4p$' -o firmware/b4
+          find firmware -type f -print | sort | tee report/extracted-ave-firmware.txt
+          test -n "$(find firmware/b3 -type f -name 'AppleAVE2FW_H17*.im4p' -print -quit)"
+          test -n "$(find firmware/b4 -type f -name 'AppleAVE2FW_H17*.im4p' -print -quit)"
+
+      - name: Fingerprint IM4P containers and payloads
+        shell: bash
+        run: |
+          set -euxo pipefail
+          : > report/fingerprints.txt
+          : > report/comparison.txt
+          while IFS= read -r b3; do
+            name="$(basename "$b3")"
+            b4="$(find firmware/b4 -type f -name "$name" -print -quit)"
+            test -n "$b4"
+            echo "### $name" | tee -a report/fingerprints.txt
+            printf 'beta3 container: ' | tee -a report/fingerprints.txt
+            shasum -a 256 "$b3" | tee -a report/fingerprints.txt
+            stat -f 'beta3 container size=%z' "$b3" | tee -a report/fingerprints.txt
+            printf 'beta4 container: ' | tee -a report/fingerprints.txt
+            shasum -a 256 "$b4" | tee -a report/fingerprints.txt
+            stat -f 'beta4 container size=%z' "$b4" | tee -a report/fingerprints.txt
+            ipsw --no-color img4 im4p info --json "$b3" > "report/${name}.b3.info.json" || true
+            ipsw --no-color img4 im4p info --json "$b4" > "report/${name}.b4.info.json" || true
+            if ipsw --no-color img4 im4p extract "$b3" --output "payload/b3/$name.bin"; then
+              ipsw --no-color img4 im4p extract "$b4" --output "payload/b4/$name.bin"
+              printf 'beta3 payload: ' | tee -a report/fingerprints.txt
+              shasum -a 256 "payload/b3/$name.bin" | tee -a report/fingerprints.txt
+              stat -f 'beta3 payload size=%z' "payload/b3/$name.bin" | tee -a report/fingerprints.txt
+              printf 'beta4 payload: ' | tee -a report/fingerprints.txt
+              shasum -a 256 "payload/b4/$name.bin" | tee -a report/fingerprints.txt
+              stat -f 'beta4 payload size=%z' "payload/b4/$name.bin" | tee -a report/fingerprints.txt
+              if cmp -s "payload/b3/$name.bin" "payload/b4/$name.bin"; then
+                echo "$name PAYLOAD_IDENTICAL" | tee -a report/comparison.txt
+              else
+                diff_count="$( (cmp -l "payload/b3/$name.bin" "payload/b4/$name.bin" 2>/dev/null || true) | wc -l | tr -d ' ' )"
+                echo "$name PAYLOAD_CHANGED differing-byte-positions=$diff_count" | tee -a report/comparison.txt
+                strings -a "payload/b3/$name.bin" | sort -u > "report/${name}.b3.strings"
+                strings -a "payload/b4/$name.bin" | sort -u > "report/${name}.b4.strings"
+                comm -3 "report/${name}.b3.strings" "report/${name}.b4.strings" > "report/${name}.strings.diff" || true
+              fi
+            else
+              echo "$name PAYLOAD_EXTRACTION_FAILED" | tee -a report/comparison.txt
+              if cmp -s "$b3" "$b4"; then
+                echo "$name CONTAINER_IDENTICAL" | tee -a report/comparison.txt
+              else
+                echo "$name CONTAINER_CHANGED" | tee -a report/comparison.txt
+              fi
+            fi
+          done < <(find firmware/b3 -type f -name 'AppleAVE2FW_H17*.im4p' | sort)
+
+      - name: Build firmware diff summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo '# iPhone17,3 iOS 27 beta3 -> beta4 AVE firmware comparison'
+            echo
+            echo 'Static restore-image analysis only; no device interaction.'
+            echo
+            cat report/comparison.txt
+            echo
+            echo '## Fingerprints'
+            echo '```'
+            cat report/fingerprints.txt
+            echo '```'
+          } > report/summary.md
+          cat report/summary.md
+
+      - name: Upload firmware diff
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios27-a18-ave-firmware-diff
+          path: report
+          retention-days: 14
