@@ -106,10 +106,12 @@ jobs:
           } > report/summary.md
           cat report/summary.md
 
-      - name: Upload firmware diff
+      - name: Upload firmware diff and payloads
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ios27-a18-ave-firmware-diff
-          path: report
+          path: |
+            report
+            payload
           retention-days: 14
