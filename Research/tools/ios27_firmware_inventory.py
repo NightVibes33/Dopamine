@@ -12,7 +12,7 @@ ap=argparse.ArgumentParser(); ap.add_argument("--root",type=Path,required=True);
 if not ns.kernel.is_file(): raise SystemExit("kernel missing")
 paths=sorted(str(p.relative_to(ns.root)) for p in ns.root.rglob("*") if p.is_file())
 raw=subprocess.run(["strings","-a",str(ns.kernel)],check=True,capture_output=True,text=True).stdout
-needles=("iokit","kernel","mediaremote","userclient","avevideoencoder","appleave","cloudattestation","gamecenter","webkit","libsystem_c","use after free","race")
+needles=("iokit","kernel","mediaremote","userclient","avevideoencoder","appleave","cloudattestation","gamecenter","webkit","libsystem_c","appledouble","backgroundassets","foundation","use after free","race","out-of-bounds write")
 strings=sorted({line[:500] for line in raw.splitlines() if any(n in line.lower() for n in needles)})
 obj={"schema":2,"device":ns.device,"build":ns.build,"kernel_sha256":digest(ns.kernel),"paths":paths,"strings":strings[:20000]}
 ns.out.parent.mkdir(parents=True,exist_ok=True); ns.out.write_text(json.dumps(obj,indent=2,sort_keys=True)+"\n")
