@@ -1,0 +1,54 @@
+name: iOS27 A18 AVE open contract
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [iphone16-ios27-v2]
+    paths:
+      - '.github/workflows/ios27-ave-open-contract.yml'
+      - 'Research/tools/ave_open_contract_map.py'
+
+permissions:
+  contents: read
+
+jobs:
+  map-open-contract:
+    runs-on: macos-latest
+    timeout-minutes: 75
+    env:
+      B3_URL: https://updates.cdn-apple.com/2026SpringSeed/fullrestores/140-35950/D135F5B5-C2BE-4630-8AE9-C78A6F0E8381/iPhone17%2C3_27.0_24A5380h_Restore.ipsw
+      B4_URL: https://updates.cdn-apple.com/2026SpringSeed/fullrestores/140-57108/5E816D0E-89BB-4B95-8825-6A3EDF22E509/iPhone17%2C3_27.0_24A5390f_Restore.ipsw
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install firmware toolkit
+        run: |
+          set -euxo pipefail
+          brew tap blacktop/tap
+          brew trust blacktop/tap
+          brew install blacktop/tap/ipsw
+      - name: Extract exact AppleAVE2 binaries
+        run: |
+          set -euxo pipefail
+          mkdir -p firmware/b3 firmware/b4 report/kexts
+          ipsw --no-color extract --remote "$B3_URL" --kernel -o firmware/b3
+          ipsw --no-color extract --remote "$B4_URL" --kernel -o firmware/b4
+          B3_KERNEL="$(find firmware/b3 -type f -name 'kernelcache.release.*' -print -quit)"
+          B4_KERNEL="$(find firmware/b4 -type f -name 'kernelcache.release.*' -print -quit)"
+          test -s "$B3_KERNEL" && test -s "$B4_KERNEL"
+          ipsw --no-color kernel extract "$B3_KERNEL" com.apple.driver.AppleAVE2 --force -o report/kexts/b3
+          ipsw --no-color kernel extract "$B4_KERNEL" com.apple.driver.AppleAVE2 --force -o report/kexts/b4
+      - name: Map open-time return and policy evidence
+        run: |
+          set -euxo pipefail
+          python3 Research/tools/ave_open_contract_map.py report/kexts/b3/com.apple.driver.AppleAVE2 24A5380h report/open-contract-beta3.md
+          python3 Research/tools/ave_open_contract_map.py report/kexts/b4/com.apple.driver.AppleAVE2 24A5390f report/open-contract-beta4.md
+          grep -Fq 'kIOReturnNoMemory' report/open-contract-beta3.md
+          grep -Fq 'Disposition' report/open-contract-beta3.md
+      - name: Upload exact-firmware evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios27-a18-ave-open-contract
+          path: report/*.md
+          retention-days: 14
