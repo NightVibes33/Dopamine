@@ -26,6 +26,123 @@
 typedef void *DOContainerQuery;
 typedef void *DOContainerObject;
 
+
+static NSString *DOIOReturnName(kern_return_t kr)
+{
+    switch ((uint32_t)kr) {
+        case 0x00000000: return @"kIOReturnSuccess";
+        case 0xe00002bd: return @"kIOReturnNoMemory";
+        case 0xe00002be: return @"kIOReturnNoResources";
+        case 0xe00002c0: return @"kIOReturnNoDevice";
+        case 0xe00002c1: return @"kIOReturnNotPrivileged";
+        case 0xe00002c2: return @"kIOReturnBadArgument";
+        case 0xe00002c7: return @"kIOReturnUnsupported";
+        case 0xe00002d8: return @"kIOReturnNotOpen";
+        case 0xe00002e2: return @"kIOReturnNotPermitted";
+        default: return @"IOReturnUnknown";
+    }
+}
+
+static NSArray<NSString *> *DORuntimeEntitlementInventory(void)
+{
+    NSMutableArray<NSString *> *lines = [NSMutableArray array];
+    void *security = dlopen("/System/Library/Frameworks/Security.framework/Security", RTLD_NOW | RTLD_LOCAL);
+    if (!security) {
+        [lines addObject:@"Runtime entitlement inventory: UNAVAILABLE"];
+        return lines;
+    }
+
+    CFTypeRef (*taskFromSelf)(CFAllocatorRef) = dlsym(security, "SecTaskCreateFromSelf");
+    CFTypeRef (*copyValue)(CFTypeRef, CFStringRef, CFErrorRef *) =
+        dlsym(security, "SecTaskCopyValueForEntitlement");
+    if (!taskFromSelf || !copyValue) {
+        [lines addObject:@"Runtime entitlement inventory: SYMBOLS UNAVAILABLE"];
+        dlclose(security);
+        return lines;
+    }
+
+    CFTypeRef task = taskFromSelf(kCFAllocatorDefault);
+    NSArray<NSString *> *keys = @[
+        @"platform-application",
+        @"com.apple.private.security.no-sandbox",
+        @"com.apple.security.exception.iokit-user-client-class",
+        @"com.apple.developer.kernel.extended-virtual-addressing",
+        @"com.apple.developer.kernel.increased-memory-limit"
+    ];
+    for (NSString *key in keys) {
+        CFTypeRef value = task ? copyValue(task, (__bridge CFStringRef)key, NULL) : NULL;
+        [lines addObject:[NSString stringWithFormat:@"Runtime entitlement %@: %@",
+                          key, value ? @"PRESENT" : @"ABSENT"]];
+        if (value) CFRelease(value);
+    }
+    if (task) CFRelease(task);
+    dlclose(security);
+    return lines;
+}
+
+static NSArray<NSString *> *DOAppleAVE2Diagnostic(void)
+{
+    NSMutableArray<NSString *> *lines = [NSMutableArray array];
+    io_service_t service = IOServiceGetMatchingService(kIOMainPortDefault,
+                                                        IOServiceMatching("AppleAVE2Driver"));
+    if (service == IO_OBJECT_NULL) {
+        [lines addObject:@"AppleAVE2 canonical service: NOT FOUND"];
+        [lines addObject:@"AppleAVE2 reachable: NO"];
+        return lines;
+    }
+
+    io_name_t className = {0};
+    io_string_t registryPath = {0};
+    kern_return_t classResult = IOObjectGetClass(service, className);
+    kern_return_t pathResult = IORegistryEntryGetPath(service, kIOServicePlane, registryPath);
+    [lines addObject:@"AppleAVE2 canonical service: FOUND"];
+    [lines addObject:[NSString stringWithFormat:@"IORegistry class: %@",
+                      classResult == KERN_SUCCESS ? [NSString stringWithUTF8String:className] : @"UNAVAILABLE"]];
+    [lines addObject:[NSString stringWithFormat:@"IORegistry path: %@",
+                      pathResult == KERN_SUCCESS ? [NSString stringWithUTF8String:registryPath] : @"UNAVAILABLE"]];
+
+    void *iokit = dlopen("/System/Library/Frameworks/IOKit.framework/IOKit", RTLD_NOW | RTLD_LOCAL);
+    CFStringRef (*copySuperclass)(CFStringRef) = iokit ? dlsym(iokit, "IOObjectCopySuperclassForClass") : NULL;
+    if (classResult == KERN_SUCCESS && copySuperclass) {
+        NSMutableArray<NSString *> *hierarchy = [NSMutableArray array];
+        CFStringRef current = CFStringCreateWithCString(kCFAllocatorDefault, className, kCFStringEncodingUTF8);
+        for (NSUInteger depth = 0; current && depth < 8; depth++) {
+            [hierarchy addObject:(__bridge NSString *)current];
+            CFStringRef next = copySuperclass(current);
+            CFRelease(current);
+            current = next;
+        }
+        if (current) CFRelease(current);
+        [lines addObject:[NSString stringWithFormat:@"IORegistry class hierarchy: %@",
+                          [hierarchy componentsJoinedByString:@" -> "]]];
+    } else {
+        [lines addObject:@"IORegistry class hierarchy: UNAVAILABLE"];
+    }
+    if (iokit) dlclose(iokit);
+
+    BOOL openedAnyClient = NO;
+    for (uint32_t type = 0; type <= 5; type++) {
+        io_connect_t connection = IO_OBJECT_NULL;
+        kern_return_t kr = IOServiceOpen(service, mach_task_self(), type, &connection);
+        [lines addObject:[NSString stringWithFormat:@"User client %u: %@ (%@, 0x%08x)",
+                          type,
+                          kr == KERN_SUCCESS ? @"OPEN" : @"DENIED",
+                          DOIOReturnName(kr),
+                          (uint32_t)kr]];
+        if (type == 0) {
+            [lines addObject:@"Client 0 probe mode: NORMAL OPEN/CLOSE ONLY; no input structure or selector calls"];
+        }
+        if (kr == KERN_SUCCESS) {
+            openedAnyClient = YES;
+            IOServiceClose(connection);
+        }
+    }
+    IOObjectRelease(service);
+    [lines addObject:[NSString stringWithFormat:@"AppleAVE2 reachable: %@",
+                      openedAnyClient ? @"YES" : @"NO"]];
+    return lines;
+}
+
 static NSArray<NSString *> *DORunCMGSandboxProbe(void)
 {
     NSMutableArray<NSString *> *lines = [NSMutableArray array];
@@ -324,33 +441,8 @@ static NSArray<NSString *> *DORunCMGSandboxProbe(void)
 
         [lines addObjectsFromArray:DORunCMGSandboxProbe()];
 
-        NSArray<NSString *> *serviceNames = @[@"AppleAVE2Driver", @"AppleAVE2"];
-        BOOL foundService = NO;
-        BOOL openedAnyClient = NO;
-        for (NSString *serviceName in serviceNames) {
-            io_service_t service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching(serviceName.UTF8String));
-            if (service == IO_OBJECT_NULL) {
-                [lines addObject:[NSString stringWithFormat:@"%@ service: NOT FOUND", serviceName]];
-                continue;
-            }
-
-            foundService = YES;
-            [lines addObject:[NSString stringWithFormat:@"%@ service: FOUND", serviceName]];
-            for (uint32_t type = 0; type <= 5; type++) {
-                io_connect_t connection = IO_OBJECT_NULL;
-                kern_return_t kr = IOServiceOpen(service, mach_task_self(), type, &connection);
-                [lines addObject:[NSString stringWithFormat:@"User client %u: %@ (0x%08x)",
-                                  type, kr == KERN_SUCCESS ? @"OPEN" : @"DENIED", kr]];
-                if (kr == KERN_SUCCESS) {
-                    openedAnyClient = YES;
-                    IOServiceClose(connection);
-                }
-            }
-            IOObjectRelease(service);
-        }
-
-        [lines addObject:[NSString stringWithFormat:@"AppleAVE2 reachable: %@",
-                          (foundService && openedAnyClient) ? @"YES" : @"NO"]];
+        [lines addObjectsFromArray:DORuntimeEntitlementInventory()];
+        [lines addObjectsFromArray:DOAppleAVE2Diagnostic()];
         [lines addObject:@"Kernel read/write: NOT PROVEN"];
         [lines addObject:@"SPTM bypass: NOT AVAILABLE"];
         [lines addObject:@"Jailbreak result: NOT AVAILABLE"];
