@@ -8,6 +8,7 @@ on:
       - '.github/workflows/ios27-ave-lfs-formula-evidence.yml'
       - 'Research/tools/ave_lfs_formula_evidence.py'
       - 'Research/tools/ave_lfs_width_delta.py'
+      - 'Research/tools/ave_lfs_allocation_dma_validation.py'
       - 'Research/tools/ave_lfsoutput_dma_candidate.py'
 
 permissions:
@@ -42,8 +43,8 @@ jobs:
           test -s "$K4"
           ipsw --no-color kernel extract "$K3" com.apple.driver.AppleAVE2 --force -o report/kexts/b3
           ipsw --no-color kernel extract "$K4" com.apple.driver.AppleAVE2 --force -o report/kexts/b4
-          ipsw --no-color extract --remote "$B3_URL" --pattern 'Firmware/ave/AppleAVE2FW_H17.*\.im4p$' -o containers/b3
-          ipsw --no-color extract --remote "$B4_URL" --pattern 'Firmware/ave/AppleAVE2FW_H17.*\.im4p$' -o containers/b4
+          ipsw --no-color extract --remote "$B3_URL" --pattern 'Firmware/ave/AppleAVE2FW_H17.*\\.im4p$' -o containers/b3
+          ipsw --no-color extract --remote "$B4_URL" --pattern 'Firmware/ave/AppleAVE2FW_H17.*\\.im4p$' -o containers/b4
           F3="$(find containers/b3 -type f -name 'AppleAVE2FW_H17*.im4p' -print -quit)"
           F4="$(find containers/b4 -type f -name 'AppleAVE2FW_H17*.im4p' -print -quit)"
           ipsw --no-color img4 im4p extract "$F3" --output report/fw/b3/H17.bin
@@ -64,6 +65,19 @@ jobs:
             report/lfs-formula-evidence.json report/lfs-width-delta.md
           grep -Fq 'predominantly in 32-bit registers' report/lfs-width-delta.md
           grep -Fq 'predominantly in 64-bit registers' report/lfs-width-delta.md
+      - name: Validate allocation-to-DMA chain
+        run: |
+          set -euxo pipefail
+          .venv/bin/python Research/tools/ave_lfs_allocation_dma_validation.py \
+            report/kexts/b3/com.apple.driver.AppleAVE2 \
+            report/kexts/b4/com.apple.driver.AppleAVE2 \
+            report/fw/b3/H17.bin report/fw/b4/H17.bin \
+            report/lfs-formula-evidence.json \
+            report/lfs-allocation-dma-validation.md \
+            report/lfs-allocation-dma-validation.json
+          grep -Fq 'candidate survives as uncertain' report/lfs-allocation-dma-validation.md
+          grep -Fq 'Accepted-domain inequality' report/lfs-allocation-dma-validation.md
+          .venv/bin/python -m json.tool report/lfs-allocation-dma-validation.json >/dev/null
       - name: Upload exact instruction evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -73,4 +87,6 @@ jobs:
             report/lfs-formula-evidence.md
             report/lfs-formula-evidence.json
             report/lfs-width-delta.md
+            report/lfs-allocation-dma-validation.md
+            report/lfs-allocation-dma-validation.json
           retention-days: 14
