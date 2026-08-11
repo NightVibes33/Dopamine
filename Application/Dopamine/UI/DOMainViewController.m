@@ -66,7 +66,6 @@ static NSArray<NSString *> *DORunCMGSandboxProbe(void)
     xpc_object_t groups = xpc_array_create(NULL, 0);
     xpc_array_set_string(groups, XPC_ARRAY_APPEND, "systemgroup.com.apple.mobilegestaltcache");
     setGroups(query, groups);
-    xpc_release(groups);
     setPlatform(query, 2);
     setFlags(query, (1ULL << 32) | (1ULL << 39));
     if (setPart) setPart(query, 3);
