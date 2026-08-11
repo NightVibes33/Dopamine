@@ -16,7 +16,95 @@
 #import <pthread.h>
 #import <sys/sysctl.h>
 #import <IOKit/IOKitLib.h>
+#import <dlfcn.h>
+#import <fcntl.h>
+#import <unistd.h>
+#import <xpc/xpc.h>
 #import <libjailbreak/libjailbreak.h>
+
+
+typedef void *DOContainerQuery;
+typedef void *DOContainerObject;
+
+static NSArray<NSString *> *DORunCMGSandboxProbe(void)
+{
+    NSMutableArray<NSString *> *lines = [NSMutableArray array];
+    void *lib = dlopen("/usr/lib/system/libsystem_containermanager.dylib", RTLD_NOW | RTLD_LOCAL);
+    if (!lib) {
+        [lines addObject:@"CMG library: UNAVAILABLE"];
+        return lines;
+    }
+
+    DOContainerQuery (*queryCreate)(void) = dlsym(lib, "container_query_create");
+    void (*queryFree)(DOContainerQuery) = dlsym(lib, "container_query_free");
+    void (*setClass)(DOContainerQuery, uint64_t) = dlsym(lib, "container_query_set_class");
+    void (*setTransient)(DOContainerQuery, bool) = dlsym(lib, "container_query_set_transient");
+    void (*setGroups)(DOContainerQuery, xpc_object_t) = dlsym(lib, "container_query_set_group_identifiers");
+    void (*setPlatform)(DOContainerQuery, uint64_t) = dlsym(lib, "container_query_operation_set_platform");
+    void (*setFlags)(DOContainerQuery, uint64_t) = dlsym(lib, "container_query_operation_set_flags");
+    void (*setPart)(DOContainerQuery, uint64_t) = dlsym(lib, "container_query_operation_set_part");
+    DOContainerObject (*singleResult)(DOContainerQuery) = dlsym(lib, "container_query_get_single_result");
+    bool (*activate)(DOContainerObject, bool) = dlsym(lib, "container_object_sandbox_extension_activate");
+    const char *(*getPath)(DOContainerObject) = dlsym(lib, "container_object_get_path");
+
+    if (!queryCreate || !queryFree || !setClass || !setTransient || !setGroups ||
+        !setPlatform || !setFlags || !singleResult || !activate || !getPath) {
+        [lines addObject:@"CMG symbols: INCOMPLETE"];
+        dlclose(lib);
+        return lines;
+    }
+
+    DOContainerQuery query = queryCreate();
+    if (!query) {
+        [lines addObject:@"CMG query: FAILED"];
+        dlclose(lib);
+        return lines;
+    }
+
+    setClass(query, 13);
+    setTransient(query, false);
+    xpc_object_t groups = xpc_array_create(NULL, 0);
+    xpc_array_set_string(groups, XPC_ARRAY_APPEND, "systemgroup.com.apple.mobilegestaltcache");
+    setGroups(query, groups);
+    xpc_release(groups);
+    setPlatform(query, 2);
+    setFlags(query, (1ULL << 32) | (1ULL << 39));
+    if (setPart) setPart(query, 3);
+
+    DOContainerObject object = singleResult(query);
+    BOOL extensionActive = object && activate(object, true);
+    NSString *containerPath = nil;
+    if (extensionActive) {
+        const char *rawPath = getPath(object);
+        if (rawPath) containerPath = [NSString stringWithUTF8String:rawPath];
+    }
+
+    [lines addObject:[NSString stringWithFormat:@"CMG sandbox extension: %@",
+                      extensionActive ? @"ACTIVE" : @"FAILED"]];
+
+    if (containerPath.length) {
+        NSString *plist = [containerPath stringByAppendingPathComponent:@"com.apple.MobileGestalt.plist"];
+        int fd = open(plist.fileSystemRepresentation, O_WRONLY | O_CLOEXEC | O_NOFOLLOW);
+        if (fd >= 0) {
+            int flags = fcntl(fd, F_GETFL);
+            BOOL writeCapable = flags >= 0 &&
+                (((flags & O_ACCMODE) == O_WRONLY) || ((flags & O_ACCMODE) == O_RDWR));
+            [lines addObject:[NSString stringWithFormat:@"MobileGestalt open-only access: %@",
+                              writeCapable ? @"WRITE-CAPABLE FD" : @"READ-ONLY/UNKNOWN"]];
+            close(fd);
+        } else {
+            [lines addObject:[NSString stringWithFormat:@"MobileGestalt open-only access: DENIED (errno %d)", errno]];
+        }
+    } else {
+        [lines addObject:@"MobileGestalt open-only access: NOT TESTED"];
+    }
+
+    queryFree(query);
+    dlclose(lib);
+    [lines addObject:@"CMG probe wrote bytes: NO"];
+    [lines addObject:@"Source credit: rooootdev/mond; bad_query research by forcequitOS"];
+    return lines;
+}
 
 @interface DOMainViewController ()
 
@@ -234,6 +322,8 @@
         if (writeError) {
             [lines addObject:[NSString stringWithFormat:@"Container error: %@", writeError.localizedDescription]];
         }
+
+        [lines addObjectsFromArray:DORunCMGSandboxProbe()];
 
         NSArray<NSString *> *serviceNames = @[@"AppleAVE2Driver", @"AppleAVE2"];
         BOOL foundService = NO;
