@@ -43,7 +43,7 @@ jobs:
           set -euxo pipefail
           python3 Research/tools/ave_open_contract_map.py report/kexts/b3/com.apple.driver.AppleAVE2 24A5380h report/open-contract-beta3.md
           python3 Research/tools/ave_open_contract_map.py report/kexts/b4/com.apple.driver.AppleAVE2 24A5390f report/open-contract-beta4.md
-          grep -Fq 'kIOReturnNoMemory' report/open-contract-beta3.md
+          grep -Fq 'newUserClient' report/open-contract-beta3.md
           grep -Fq 'Disposition' report/open-contract-beta3.md
       - name: Upload exact-firmware evidence
         if: always()
