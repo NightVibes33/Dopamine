@@ -1,0 +1,65 @@
+name: iOS27 CloudAttestation correlation
+on:
+  workflow_dispatch:
+  push:
+    branches: [iphone16-ios27-v2]
+    paths:
+      - '.github/workflows/ios27-cloudattestation-correlation.yml'
+      - 'Research/tools/cloudattestation_policy_compare.py'
+      - 'Research/tools/test_cloudattestation_policy_compare.py'
+permissions: {contents: read}
+
+env:
+  B3_URL: https://updates.cdn-apple.com/2026SpringSeed/fullrestores/140-35950/D135F5B5-C2BE-4630-8AE9-C78A6F0E8381/iPhone17%2C3_27.0_24A5380h_Restore.ipsw
+
+jobs:
+  correlate:
+    runs-on: macos-latest
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test analyzer
+        run: python3 -m unittest -v Research/tools/test_cloudattestation_policy_compare.py
+      - name: Install firmware tooling
+        run: |
+          set -euxo pipefail
+          brew tap blacktop/tap
+          brew trust blacktop/tap
+          brew install blacktop/tap/ipsw
+      - name: Fetch disclosed reference binaries
+        run: |
+          set -euxo pipefail
+          git clone --depth 1 https://github.com/EastArctica/CVE-2026-43813.git reference
+          test -s reference/23G5057c_CloudAttestation
+          test -s reference/23G5065a_CloudAttestation
+      - name: Extract beta 3 CloudAttestation
+        run: |
+          set -euxo pipefail
+          curl --fail --location --retry 3 --retry-all-errors --connect-timeout 30 --max-time 2400 --progress-bar "$B3_URL" -o beta3.ipsw
+          perl -e 'alarm shift; exec @ARGV' 2700 ipsw --no-color extract beta3.ipsw --dyld --dyld-arch arm64e -o beta3-dyld
+          DSC="$(find beta3-dyld -type f -name 'dyld_shared_cache_arm64e' -print -quit)"
+          test -s "$DSC"
+          mkdir -p target
+          ipsw --no-color dyld extract "$DSC" CloudAttestation --objc --force -o target
+          TARGET="$(find target -type f -iname '*CloudAttestation*' -print -quit)"
+          test -s "$TARGET"
+          echo "TARGET=$TARGET" >> "$GITHUB_ENV"
+      - name: Compare anchored policy implementations
+        run: |
+          set -euxo pipefail
+          mkdir -p report
+          python3 Research/tools/cloudattestation_policy_compare.py \
+            --target "$TARGET" \
+            --vulnerable reference/23G5057c_CloudAttestation \
+            --patched reference/23G5065a_CloudAttestation \
+            --out-json report/cve-2026-43813-cloudattestation-correlation.json \
+            --out-md report/cve-2026-43813-cloudattestation-correlation.md
+          python3 -m json.tool report/cve-2026-43813-cloudattestation-correlation.json >/dev/null
+          jq -e '.candidate == "CVE-2026-43813" and .safety.pocs_executed == false and (.disposition == "patched-like" or .disposition == "vulnerable-like" or .disposition == "deferred-ambiguous-control-flow")' report/cve-2026-43813-cloudattestation-correlation.json >/dev/null
+      - name: Upload exact-build comparison
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios27-cloudattestation-correlation
+          path: report/
+          retention-days: 14
