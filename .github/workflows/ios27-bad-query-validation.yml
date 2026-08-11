@@ -1,0 +1,41 @@
+name: iOS27 bad_query validation
+on:
+  workflow_dispatch:
+  push:
+    branches: [iphone16-ios27-v2]
+    paths:
+      - '.github/workflows/ios27-bad-query-validation.yml'
+      - 'Research/bad_query-ios27.md'
+      - 'Research/tools/validate_bad_query_source.py'
+permissions: {contents: read}
+
+jobs:
+  validate-public-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch pinned public PoC
+        run: |
+          set -euxo pipefail
+          git clone https://github.com/forcequitOS/bad_query.git upstream
+          git -C upstream checkout 73ef6da
+          test "$(git -C upstream rev-parse --short HEAD)" = "73ef6da"
+      - name: Validate static source chain
+        run: |
+          set -euxo pipefail
+          mkdir -p report
+          python3 Research/tools/validate_bad_query_source.py upstream/bad_query/bad_query.c --out report/bad-query-validation.json
+          python3 -m json.tool report/bad-query-validation.json >/dev/null
+          python3 - <<'PY'
+          import json
+          report=json.load(open('report/bad-query-validation.json'))
+          assert report['static_chain_complete'] is True
+          assert report['safety'] == {'compiled': False, 'executed': False, 'live_device_test': False}
+          assert report['cve_identity'] is None
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios27-bad-query-validation
+          path: report/
+          retention-days: 14
