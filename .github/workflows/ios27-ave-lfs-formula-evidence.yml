@@ -76,8 +76,6 @@ jobs:
             report/lfs-formula-evidence.json \
             report/lfs-allocation-dma-validation.md \
             report/lfs-allocation-dma-validation.json
-            report/lfs-accepted-domain.md
-            report/lfs-accepted-domain.json
           grep -Fq 'candidate survives as uncertain' report/lfs-allocation-dma-validation.md
           grep -Fq 'Accepted-domain inequality' report/lfs-allocation-dma-validation.md
           .venv/bin/python -m json.tool report/lfs-allocation-dma-validation.json >/dev/null
@@ -104,4 +102,6 @@ jobs:
             report/lfs-width-delta.md
             report/lfs-allocation-dma-validation.md
             report/lfs-allocation-dma-validation.json
+            report/lfs-accepted-domain.md
+            report/lfs-accepted-domain.json
           retention-days: 14
