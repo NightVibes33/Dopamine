@@ -6,7 +6,7 @@ from pathlib import Path
 
 SEEDS = [
     ("IOS27-CVE-64747", "CVE-2026-64747", "AVEVideoEncoder", "buffer overflow; kernel code execution", "AVEVideoEncoder", ["CWE-120"], "Apple advisory names exact component and size-validation fix"),
-    ("IOS27-CVE-43813", "CVE-2026-43813", "CloudAttestation", "code-signing enforcement bypass", "CloudAttestation", ["CWE-347"], "Apple advisory names exact component"),
+    ("IOS27-CVE-43813", "CVE-2026-43813", "CloudAttestation", "PCC attestation environment-policy validation bypass", "CloudAttestation", ["CWE-347"], "Public function-level analysis exists; it does not establish a general app-signing bypass"),
     ("IOS27-CVE-43723", "CVE-2026-43723", "MediaRemote", "root privilege via path handling", "MediaRemote", ["CWE-22"], "public minimal PoC and technical note exist"),
     ("IOS27-CVE-43811", "CVE-2026-43811", "Books", "modify protected filesystem via race", "Books", ["CWE-362"], "Apple advisory names exact component"),
     ("IOS27-CVE-64740", "CVE-2026-64740", "GameCenter", "sandbox escape via directory-path parsing", "GameCenter", ["CWE-22"], "Apple advisory names exact component and path-validation fix"),
