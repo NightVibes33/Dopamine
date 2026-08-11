@@ -4,20 +4,20 @@ import argparse, hashlib, json, subprocess
 from pathlib import Path
 
 ROWS = [
- ("CVE-2026-43813","CloudAttestation",["enforceEnvironment","ComputeNodeValidator","CloudAttestation.environment"],"function-level public anchor; public research says this is PCC policy handling, not a general app-signing bypass"),
- ("CVE-2026-43805","IOKit",[],"no public IOKit class or method"),
- ("CVE-2026-64749","Kernel",[],"no public subsystem, function, or crash signature"),
- ("CVE-2026-43778","Kernel",[],"no public freed object type or function"),
- ("CVE-2026-43724","Kernel",[],"input-sanitization fix class only; no public input or sink"),
- ("CVE-2026-64751","Kernel",[],"no public freed object type or function"),
- ("CVE-2026-43776","AppleDouble",["AppleDouble"],"component only; no public parser function"),
- ("CVE-2026-43811","Books",["Books"],"component only; no public raced path"),
- ("CVE-2026-64709","Kernel",[],"no public disclosure source or function"),
- ("CVE-2026-43739","Kernel",[],"bounds-checking fix class only; no public function"),
- ("CVE-2026-43816","Kernel",[],"no public subsystem or function"),
- ("CVE-2026-43814","Kernel",[],"no public freed object type or function"),
- ("CVE-2026-64729","Kernel",[],"no public freed object type or function"),
- ("CVE-2026-64747","AVEVideoEncoder",["AVEVideoEncoder"],"component only; no public function connecting it to LFS"),
+ ("CVE-2026-43813","CloudAttestation",["enforceEnvironment","ComputeNodeValidator","CloudAttestation.environment"],"function","function-level public anchor; public research says this is PCC policy handling, not a general app-signing bypass"),
+ ("CVE-2026-43805","IOKit",[],"none","no public IOKit class or method"),
+ ("CVE-2026-64749","Kernel",[],"none","no public subsystem, function, or crash signature"),
+ ("CVE-2026-43778","Kernel",[],"none","no public freed object type or function"),
+ ("CVE-2026-43724","Kernel",[],"none","input-sanitization fix class only; no public input or sink"),
+ ("CVE-2026-64751","Kernel",[],"none","no public freed object type or function"),
+ ("CVE-2026-43776","AppleDouble",["AppleDouble"],"component","component only; no public parser function"),
+ ("CVE-2026-43811","Books",["Books"],"component","component only; no public raced path"),
+ ("CVE-2026-64709","Kernel",[],"none","no public disclosure source or function"),
+ ("CVE-2026-43739","Kernel",[],"none","bounds-checking fix class only; no public function"),
+ ("CVE-2026-43816","Kernel",[],"none","no public subsystem or function"),
+ ("CVE-2026-43814","Kernel",[],"none","no public freed object type or function"),
+ ("CVE-2026-64729","Kernel",[],"none","no public freed object type or function"),
+ ("CVE-2026-64747","AVEVideoEncoder",["AVEVideoEncoder"],"component","component only; no public function connecting it to LFS"),
 ]
 
 def sha(p):
@@ -61,18 +61,23 @@ def main():
  bc,fc=corpus(n.beta3_components),corpus(n.fixed_components)
  changed=changed_files(bc,fc)
  rows=[]
- for cve,component,needles,note in ROWS:
+ for cve,component,needles,anchor_level,note in ROWS:
   bp,bs,by=hits(bc,needles); fp,fs,fy=hits(fc,needles)
   component_changed=sorted(name for name in changed if component.lower() in name.lower())
-  if not needles:
+  if anchor_level == "none":
    disposition="deferred-no-public-code-anchor"; gap="public class/function/object/crash signature or patch hunk"
+  elif anchor_level == "component":
+   if bp or bs or by or fp or fs or fy:
+    disposition="component-observed-unvalidated"; gap="function-level public anchor"
+   else:
+    disposition="component-only-unmatched"; gap="function-level public anchor"
   elif bs or by or fs or fy:
    disposition="public-anchor-signature-observed"; gap="prove vulnerable beta-3 and patched comparator control flow"
   elif bp or fp:
    disposition="component-path-observed"; gap="content/symbol-level patch anchor"
   else:
-   disposition="component-only-unmatched"; gap="function-level patch anchor"
-  rows.append({"cve":cve,"component":component,"public_needles":needles,"public_note":note,
+   disposition="function-anchor-unmatched"; gap="extract or locate the anchored function in both builds"
+  rows.append({"cve":cve,"component":component,"public_needles":needles,"public_anchor_level":anchor_level,"public_note":note,
    "beta3_path_hits":bp,"fixed_path_hits":fp,
    "beta3_string_hits":bs,"fixed_string_hits":fs,
    "beta3_symbol_hits":by,"fixed_symbol_hits":fy,
