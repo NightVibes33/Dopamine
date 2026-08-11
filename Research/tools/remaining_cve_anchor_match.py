@@ -19,25 +19,45 @@ ROWS = [
  ("CVE-2026-64729","Kernel",[],"none","no public freed object type or function"),
  ("CVE-2026-64747","AVEVideoEncoder",["AVEVideoEncoder"],"component","component only; no public function connecting it to LFS"),
 ]
+ALL_NEEDLES=sorted({needle for _,_,needles,_,_ in ROWS for needle in needles})
 
-def sha(p):
+def scan_file(p):
  h=hashlib.sha256()
+ found=set()
+ tails={needle:b"" for needle in ALL_NEEDLES}
+ encoded={needle:needle.encode() for needle in ALL_NEEDLES}
  with p.open("rb") as f:
-  for b in iter(lambda:f.read(1048576),b""): h.update(b)
- return h.hexdigest()
+  for block in iter(lambda:f.read(1048576),b""):
+   h.update(block)
+   for needle, raw in encoded.items():
+    data=tails[needle]+block
+    if raw in data: found.add(needle)
+    tails[needle]=data[-max(len(raw)-1,0):] if len(raw)>1 else b""
+ return h.hexdigest(),found
 
 def corpus(root):
  out={}
  for p in sorted(x for x in root.rglob("*") if x.is_file()):
-  strings=subprocess.run(["strings","-a",str(p)],check=True,capture_output=True,text=True,errors="replace").stdout
-  symbols=subprocess.run(["nm","-gj",str(p)],check=False,capture_output=True,text=True,errors="replace").stdout
-  out[str(p.relative_to(root))]={"strings":strings,"symbols":symbols,"sha256":sha(p)}
+  digest,string_hits=scan_file(p)
+  path=str(p.relative_to(root))
+  relevant=string_hits or any(n.lower() in path.lower() for n in ALL_NEEDLES)
+  symbols=set()
+  if relevant:
+   try:
+    result=subprocess.run(["nm","-gj",str(p)],check=False,capture_output=True,text=True,errors="replace",timeout=60)
+    symbols={n for n in ALL_NEEDLES if n in result.stdout}
+   except subprocess.TimeoutExpired:
+    symbols=set()
+  out[path]={"string_hits":string_hits,"symbol_hits":symbols,"sha256":digest}
  return out
+
+def sha(p):
+ return scan_file(p)[0]
 
 def hits(corpus_data, needles):
  path_hits=sorted({needle for path in corpus_data for needle in needles if needle.lower() in path.lower()})
- string_hits=sorted({needle for data in corpus_data.values() for needle in needles if needle in data["strings"]})
- symbol_hits=sorted({needle for data in corpus_data.values() for needle in needles if needle in data["symbols"]})
+ string_hits=sorted({needle for data in corpus_data.values() for needle in needles if needle in data["string_hits"]})
+ symbol_hits=sorted({needle for data in corpus_data.values() for needle in needles if needle in data["symbol_hits"]})
  return path_hits,string_hits,symbol_hits
 
 def changed_files(beta3, fixed):
