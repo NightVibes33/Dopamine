@@ -207,14 +207,15 @@
 {
     self.jailbreakBtn.enabled = NO;
 
-    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_USER_INITIATED, 0), ^{
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
         NSMutableArray<NSString *> *lines = [NSMutableArray array];
         UIDevice *device = [UIDevice currentDevice];
 
         char machine[256] = {0};
         size_t machineSize = sizeof(machine);
         if (sysctlbyname("hw.machine", machine, &machineSize, NULL, 0) != 0) {
-            strlcpy(machine, "unknown", sizeof(machine));
+            machine[0] = '?';
+            machine[1] = '\\0';
         }
 
         [lines addObject:@"Dopamine iOS 27 research diagnostics"];
