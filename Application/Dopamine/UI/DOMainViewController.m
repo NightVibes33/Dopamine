@@ -81,6 +81,33 @@ static NSArray<NSString *> *DORuntimeEntitlementInventory(void)
     return lines;
 }
 
+static NSString *DORegistryScalarDescription(io_service_t service, CFStringRef key)
+{
+    CFTypeRef value = IORegistryEntryCreateCFProperty(service, key, kCFAllocatorDefault, 0);
+    if (!value) return @"ABSENT";
+
+    NSString *description = nil;
+    if (CFGetTypeID(value) == CFStringGetTypeID()) {
+        description = [(__bridge NSString *)value copy];
+    } else if (CFGetTypeID(value) == CFNumberGetTypeID() ||
+               CFGetTypeID(value) == CFBooleanGetTypeID()) {
+        description = [(__bridge id)value description];
+    } else if (CFGetTypeID(value) == CFArrayGetTypeID()) {
+        description = [NSString stringWithFormat:@"ARRAY (%ld entries)",
+                       (long)CFArrayGetCount((CFArrayRef)value)];
+    } else if (CFGetTypeID(value) == CFDictionaryGetTypeID()) {
+        description = [NSString stringWithFormat:@"DICTIONARY (%ld keys)",
+                       (long)CFDictionaryGetCount((CFDictionaryRef)value)];
+    } else if (CFGetTypeID(value) == CFDataGetTypeID()) {
+        description = [NSString stringWithFormat:@"DATA (%ld bytes)",
+                       (long)CFDataGetLength((CFDataRef)value)];
+    } else {
+        description = @"PRESENT (unreported type)";
+    }
+    CFRelease(value);
+    return description ?: @"PRESENT";
+}
+
 static NSArray<NSString *> *DOAppleAVE2Diagnostic(void)
 {
     NSMutableArray<NSString *> *lines = [NSMutableArray array];
@@ -101,6 +128,23 @@ static NSArray<NSString *> *DOAppleAVE2Diagnostic(void)
                       classResult == KERN_SUCCESS ? [NSString stringWithUTF8String:className] : @"UNAVAILABLE"]];
     [lines addObject:[NSString stringWithFormat:@"IORegistry path: %@",
                       pathResult == KERN_SUCCESS ? [NSString stringWithUTF8String:registryPath] : @"UNAVAILABLE"]];
+
+    // Read only published registry metadata. Values that may contain opaque binary
+    // policy data are reported by type/size rather than copied into the report.
+    NSArray<NSString *> *contractKeys = @[
+        @"IOUserClientClass",
+        @"IOProviderClass",
+        @"CFBundleIdentifier",
+        @"IOUserClientCreator",
+        @"IOUserClientCrossEndianCompatible",
+        @"IOUserClientProperties"
+    ];
+    [lines addObject:@"AppleAVE2 published initialization contract:"];
+    for (NSString *key in contractKeys) {
+        [lines addObject:[NSString stringWithFormat:@"  %@: %@",
+                          key,
+                          DORegistryScalarDescription(service, (__bridge CFStringRef)key)]];
+    }
 
     void *iokit = dlopen("/System/Library/Frameworks/IOKit.framework/IOKit", RTLD_NOW | RTLD_LOCAL);
     CFStringRef (*copySuperclass)(CFStringRef) = iokit ? dlsym(iokit, "IOObjectCopySuperclassForClass") : NULL;
@@ -132,6 +176,7 @@ static NSArray<NSString *> *DOAppleAVE2Diagnostic(void)
                           (uint32_t)kr]];
         if (type == 0) {
             [lines addObject:@"Client 0 probe mode: NORMAL OPEN/CLOSE ONLY; no input structure or selector calls"];
+            [lines addObject:@"Client 0 interpretation: open-time failure occurs before any external method call"];
         }
         if (kr == KERN_SUCCESS) {
             openedAnyClient = YES;
