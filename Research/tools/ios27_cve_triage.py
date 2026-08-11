@@ -17,6 +17,14 @@ SEEDS = [
     ("IOS27-CVE-43778", "CVE-2026-43778", "Kernel", "use-after-free; kernel-memory corruption", None, ["CWE-416"], "advisory only; vulnerable subsystem/function is not public"),
     ("IOS27-CVE-43724", "CVE-2026-43724", "Kernel", "app-triggerable kernel-memory write", None, [], "advisory only; vulnerable subsystem/function is not public"),
     ("IOS27-CVE-64751", "CVE-2026-64751", "Kernel", "use-after-free; kernel-memory write", None, ["CWE-416"], "advisory only; vulnerable subsystem/function is not public"),
+    ("IOS27-CVE-43776", "CVE-2026-43776", "AppleDouble", "crafted-file buffer overflow; userland code execution", "AppleDouble", ["CWE-120"], "Apple advisory names exact component and bounds-checking fix"),
+    ("IOS27-CVE-64707", "CVE-2026-64707", "BackgroundAssets", "delete files without permission", "BackgroundAssets", ["CWE-862"], "Apple advisory names exact component and validation fix"),
+    ("IOS27-CVE-43714", "CVE-2026-43714", "Foundation", "malicious app access to protected user data", "Foundation", ["CWE-200"], "Apple advisory names exact component but no function"),
+    ("IOS27-CVE-64709", "CVE-2026-64709", "Kernel", "app-triggerable kernel-memory disclosure", None, ["CWE-200"], "advisory only; vulnerable subsystem/function is not public"),
+    ("IOS27-CVE-43739", "CVE-2026-43739", "Kernel", "app-triggerable kernel out-of-bounds write", None, ["CWE-787"], "advisory only; vulnerable subsystem/function is not public"),
+    ("IOS27-CVE-43816", "CVE-2026-43816", "Kernel", "app-triggerable kernel out-of-bounds write", None, ["CWE-787"], "advisory only; vulnerable subsystem/function is not public"),
+    ("IOS27-CVE-43814", "CVE-2026-43814", "Kernel", "app-triggerable kernel use-after-free", None, ["CWE-416"], "advisory only; vulnerable subsystem/function is not public"),
+    ("IOS27-CVE-64729", "CVE-2026-64729", "Kernel", "app-triggerable kernel use-after-free", None, ["CWE-416"], "advisory only; vulnerable subsystem/function is not public"),
 ]
 
 def load(path: Path) -> dict:
