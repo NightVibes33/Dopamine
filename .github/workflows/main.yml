@@ -1,6 +1,6 @@
 name: "Dopamine: build and upload"
 
-# Manual IPA rebuild requested 2026-08-10
+# Latest iphone16-ios27-v2 IPA rebuild requested 2026-08-10
 on:
   push:
     branches:
@@ -55,7 +55,7 @@ jobs:
           export THEOS="${BASEDIR}/theos"
           mkdir -p $THEOS
           curl -fsSL https://raw.githubusercontent.com/theos/theos/master/bin/install-theos >> install-theos.sh
-          gsed -E "/^\s*get_theos\s*$/,+1 s/^(\s*)(get_sdks)\s*$/\1mkdir -p \${THEOS}\/sdks\n\1touch \${THEOS}\/sdks\/sdk\n\1\2/g" -i install-theos.sh
+          gsed -E "/^\\s*get_theos\\s*$/,+1 s/^(\\s*)(get_sdks)\\s*$/\\1mkdir -p \${THEOS}\\/sdks\\n\\1touch \${THEOS}\\/sdks\\/sdk\\n\\1\\2/g" -i install-theos.sh
           bash install-theos.sh
           curl -L https://github.com/theos/sdks/releases/latest/download/iPhoneOS16.5.sdk.tar.xz --output $THEOS/sdks/iPhoneOS16.5.sdk.tar.xz
           gunzip $THEOS/sdks/iPhoneOS16.5.sdk.tar.xz
