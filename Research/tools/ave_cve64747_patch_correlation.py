@@ -32,7 +32,10 @@ def one_marker_function(macho, marker):
     matches = macho.functions_referencing_marker(marker)
     if len(matches) != 1:
         raise RuntimeError(f"{marker}: expected one function, got {matches}")
-    return matches[0]
+    index, function = matches[0]
+    if not isinstance(index, int) or not isinstance(function, int):
+        raise RuntimeError(f"{marker}: invalid function match {matches[0]!r}")
+    return index, function
 
 
 def fingerprint(macho, index, function):
