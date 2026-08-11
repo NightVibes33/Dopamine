@@ -15,6 +15,7 @@
 #import "DOLogCrashViewController.h"
 #import <pthread.h>
 #import <sys/sysctl.h>
+#import <IOKit/IOKitLib.h>
 #import <libjailbreak/libjailbreak.h>
 
 @interface DOMainViewController ()
@@ -134,6 +135,11 @@
         jailbreakButtonImage = [UIImage systemImageNamed:@"lock.slash" withConfiguration:[DOGlobalAppearance smallIconImageConfiguration]];
     
     self.jailbreakBtn = [[DOJailbreakButton alloc] initWithAction: [UIAction actionWithTitle:jailbreakButtonTitle image:jailbreakButtonImage identifier:@"jailbreak" handler:^(__kindof UIAction * _Nonnull action) {
+        if (![[DOEnvironmentManager sharedManager] isSupported]) {
+            [self runIOS27Diagnostics];
+            return;
+        }
+
         [actionView hide];
         [self.jailbreakBtn expandButton: self.jailbreakButtonConstraints];
 
@@ -146,7 +152,8 @@
         [self startJailbreak];
         
     }]];
-    self.jailbreakBtn.enabled = !isJailbroken && isSupported;
+    // Unsupported research targets may run diagnostics, but never enter the jailbreak chain.
+    self.jailbreakBtn.enabled = !isJailbroken;
 
     [self.view addSubview:self.jailbreakBtn];
 
@@ -181,7 +188,7 @@
 
     NSString *jailbreakButtonTitle = DOLocalizedString(@"Button_Jailbreak_Title");
     if (!isSupported)
-        jailbreakButtonTitle = DOLocalizedString(@"Unsupported");
+        jailbreakButtonTitle = @"Run iOS 27 Diagnostics";
     else if (isJailbroken)
         jailbreakButtonTitle = DOLocalizedString(@"Status_Title_Jailbroken");
     else if (removeJailbreakEnabled)
@@ -194,6 +201,88 @@
 {
     [super viewWillAppear:animated];
     [self.jailbreakBtn.button setTitle:[self jailbreakButtonTitle] forState:UIControlStateNormal];
+}
+
+- (void)runIOS27Diagnostics
+{
+    self.jailbreakBtn.enabled = NO;
+
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_USER_INITIATED, 0), ^{
+        NSMutableArray<NSString *> *lines = [NSMutableArray array];
+        UIDevice *device = [UIDevice currentDevice];
+
+        char machine[256] = {0};
+        size_t machineSize = sizeof(machine);
+        if (sysctlbyname("hw.machine", machine, &machineSize, NULL, 0) != 0) {
+            strlcpy(machine, "unknown", sizeof(machine));
+        }
+
+        [lines addObject:@"Dopamine iOS 27 research diagnostics"];
+        [lines addObject:[NSString stringWithFormat:@"Device: %s", machine]];
+        [lines addObject:[NSString stringWithFormat:@"System: %@ %@", device.systemName, device.systemVersion]];
+        [lines addObject:[NSString stringWithFormat:@"Build: %@", [[DOEnvironmentManager sharedManager] nightlyHash] ?: @"release"]];
+
+        NSString *probePath = [NSTemporaryDirectory() stringByAppendingPathComponent:@"dopamine-ios27-rw-probe"];
+        NSData *expected = [@"DOPAMINE_IOS27_CONTAINER_RW" dataUsingEncoding:NSUTF8StringEncoding];
+        NSError *writeError = nil;
+        BOOL wrote = [expected writeToFile:probePath options:NSDataWritingAtomic error:&writeError];
+        NSData *readBack = wrote ? [NSData dataWithContentsOfFile:probePath] : nil;
+        BOOL containerRW = wrote && [readBack isEqualToData:expected];
+        [[NSFileManager defaultManager] removeItemAtPath:probePath error:nil];
+        [lines addObject:[NSString stringWithFormat:@"App-container read/write: %@", containerRW ? @"PASS" : @"FAIL"]];
+        if (writeError) {
+            [lines addObject:[NSString stringWithFormat:@"Container error: %@", writeError.localizedDescription]];
+        }
+
+        NSArray<NSString *> *serviceNames = @[@"AppleAVE2Driver", @"AppleAVE2"];
+        BOOL foundService = NO;
+        BOOL openedAnyClient = NO;
+        for (NSString *serviceName in serviceNames) {
+            io_service_t service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching(serviceName.UTF8String));
+            if (service == IO_OBJECT_NULL) {
+                [lines addObject:[NSString stringWithFormat:@"%@ service: NOT FOUND", serviceName]];
+                continue;
+            }
+
+            foundService = YES;
+            [lines addObject:[NSString stringWithFormat:@"%@ service: FOUND", serviceName]];
+            for (uint32_t type = 0; type <= 5; type++) {
+                io_connect_t connection = IO_OBJECT_NULL;
+                kern_return_t kr = IOServiceOpen(service, mach_task_self(), type, &connection);
+                [lines addObject:[NSString stringWithFormat:@"User client %u: %@ (0x%08x)",
+                                  type, kr == KERN_SUCCESS ? @"OPEN" : @"DENIED", kr]];
+                if (kr == KERN_SUCCESS) {
+                    openedAnyClient = YES;
+                    IOServiceClose(connection);
+                }
+            }
+            IOObjectRelease(service);
+        }
+
+        [lines addObject:[NSString stringWithFormat:@"AppleAVE2 reachable: %@",
+                          (foundService && openedAnyClient) ? @"YES" : @"NO"]];
+        [lines addObject:@"Kernel read/write: NOT PROVEN"];
+        [lines addObject:@"SPTM bypass: NOT AVAILABLE"];
+        [lines addObject:@"Jailbreak result: NOT AVAILABLE"];
+        [lines addObject:@"Opening a user client is reachability evidence only; it is not kernel read/write."];
+
+        NSString *report = [lines componentsJoinedByString:@"\n"];
+        NSLog(@"%@", report);
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"iOS 27 Diagnostic Result"
+                                                                            message:report
+                                                                     preferredStyle:UIAlertControllerStyleAlert];
+            [alert addAction:[UIAlertAction actionWithTitle:@"Copy Results"
+                                                     style:UIAlertActionStyleDefault
+                                                   handler:^(__kindof UIAlertAction *action) {
+                UIPasteboard.generalPasteboard.string = report;
+            }]];
+            [alert addAction:[UIAlertAction actionWithTitle:@"Done" style:UIAlertActionStyleCancel handler:nil]];
+            [self presentViewController:alert animated:YES completion:nil];
+            self.jailbreakBtn.enabled = YES;
+        });
+    });
 }
 
 - (void)startJailbreak
