@@ -9,6 +9,7 @@ on:
       - 'Research/tools/ave_lfs_formula_evidence.py'
       - 'Research/tools/ave_lfs_width_delta.py'
       - 'Research/tools/ave_lfs_allocation_dma_validation.py'
+      - 'Research/tools/ave_lfs_accepted_domain.py'
       - 'Research/tools/ave_lfsoutput_dma_candidate.py'
 
 permissions:
@@ -75,9 +76,23 @@ jobs:
             report/lfs-formula-evidence.json \
             report/lfs-allocation-dma-validation.md \
             report/lfs-allocation-dma-validation.json
+            report/lfs-accepted-domain.md
+            report/lfs-accepted-domain.json
           grep -Fq 'candidate survives as uncertain' report/lfs-allocation-dma-validation.md
           grep -Fq 'Accepted-domain inequality' report/lfs-allocation-dma-validation.md
           .venv/bin/python -m json.tool report/lfs-allocation-dma-validation.json >/dev/null
+      - name: Extract accepted-domain caller controls
+        run: |
+          set -euxo pipefail
+          .venv/bin/python Research/tools/ave_lfs_accepted_domain.py \
+            report/kexts/b3/com.apple.driver.AppleAVE2 \
+            report/kexts/b4/com.apple.driver.AppleAVE2 \
+            report/lfs-accepted-domain.md \
+            report/lfs-accepted-domain.json
+          grep -Fq 'candidate survives as uncertain' report/lfs-accepted-domain.md
+          grep -Fq 'local signed-31-bit guard: absent' report/lfs-accepted-domain.md
+          grep -Fq 'local signed-31-bit guard: present' report/lfs-accepted-domain.md
+          .venv/bin/python -m json.tool report/lfs-accepted-domain.json >/dev/null
       - name: Upload exact instruction evidence
         if: always()
         uses: actions/upload-artifact@v4
