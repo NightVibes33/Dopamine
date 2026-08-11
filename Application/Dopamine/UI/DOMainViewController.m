@@ -19,6 +19,7 @@
 #import <dlfcn.h>
 #import <fcntl.h>
 #import <unistd.h>
+#import <sys/stat.h>
 #import <xpc/xpc.h>
 #import <libjailbreak/libjailbreak.h>
 
@@ -140,6 +141,94 @@ static NSArray<NSString *> *DOAppleAVE2Diagnostic(void)
     IOObjectRelease(service);
     [lines addObject:[NSString stringWithFormat:@"AppleAVE2 reachable: %@",
                       openedAnyClient ? @"YES" : @"NO"]];
+    return lines;
+}
+
+
+static NSArray<NSString *> *DOBadQueryAccessMap(void)
+{
+    NSMutableArray<NSString *> *lines = [NSMutableArray array];
+    void *lib = dlopen("/usr/lib/system/libsystem_containermanager.dylib", RTLD_NOW | RTLD_LOCAL);
+    if (!lib) {
+        [lines addObject:@"bad_query access map: CMG LIBRARY UNAVAILABLE"];
+        return lines;
+    }
+
+    DOContainerQuery (*queryCreate)(void) = dlsym(lib, "container_query_create");
+    void (*queryFree)(DOContainerQuery) = dlsym(lib, "container_query_free");
+    void (*setClass)(DOContainerQuery, uint64_t) = dlsym(lib, "container_query_set_class");
+    void (*setGroups)(DOContainerQuery, xpc_object_t) = dlsym(lib, "container_query_set_group_identifiers");
+    void (*setFlags)(DOContainerQuery, uint64_t) = dlsym(lib, "container_query_operation_set_flags");
+    void (*setPart)(DOContainerQuery, uint64_t) = dlsym(lib, "container_query_operation_set_part");
+    void (*setPartDomain)(DOContainerQuery, const char *) = dlsym(lib, "container_query_operation_set_part_domain");
+    DOContainerObject (*singleResult)(DOContainerQuery) = dlsym(lib, "container_query_get_single_result");
+    char *(*copyToken)(DOContainerObject) = dlsym(lib, "container_copy_sandbox_token");
+    int64_t (*consumeToken)(const char *) = dlsym(RTLD_DEFAULT, "sandbox_extension_consume");
+    int (*releaseToken)(int64_t) = dlsym(RTLD_DEFAULT, "sandbox_extension_release");
+
+    if (!queryCreate || !queryFree || !setClass || !setGroups || !setFlags ||
+        !setPart || !setPartDomain || !singleResult || !copyToken || !consumeToken) {
+        [lines addObject:@"bad_query access map: REQUIRED SYMBOLS INCOMPLETE"];
+        dlclose(lib);
+        return lines;
+    }
+
+    NSArray<NSDictionary<NSString *, NSString *> *> *targets = @[
+        @{@"name": @"App data root", @"path": @"/var/containers/Data/Application"},
+        @{@"name": @"App-group root", @"path": @"/var/mobile/Containers/Shared/AppGroup"},
+        @{@"name": @"System data root", @"path": @"/var/containers/Data/System"},
+        @{@"name": @"System-group root", @"path": @"/var/containers/Shared/SystemGroup"},
+        @{@"name": @"MobileGestalt system group", @"path": @"/var/containers/Shared/SystemGroup/systemgroup.com.apple.mobilegestaltcache"}
+    ];
+
+    [lines addObject:@"bad_query access map: NON-DESTRUCTIVE ROOT CHECKS"];
+    for (NSDictionary<NSString *, NSString *> *target in targets) {
+        NSString *name = target[@"name"];
+        NSString *path = target[@"path"];
+        DOContainerQuery query = queryCreate();
+        int64_t handle = -1;
+        BOOL tokenActive = NO;
+
+        if (query) {
+            setClass(query, 13);
+            xpc_object_t identifier = xpc_string_create("systemgroup.com.apple.mobilegestaltcache");
+            setGroups(query, identifier);
+            setPart(query, 3);
+            NSString *domain = [@"../../../../../../../.." stringByAppendingString:path];
+            setPartDomain(query, domain.fileSystemRepresentation);
+            setFlags(query, 0x0000008000000000ULL);
+
+            DOContainerObject object = singleResult(query);
+            char *token = object ? copyToken(object) : NULL;
+            if (token) {
+                handle = consumeToken(token);
+                tokenActive = handle >= 0;
+                free(token);
+            }
+            queryFree(query);
+        }
+
+        struct stat st = {0};
+        BOOL exists = lstat(path.fileSystemRepresentation, &st) == 0;
+        int readFD = open(path.fileSystemRepresentation, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
+        BOOL readable = readFD >= 0;
+        if (readFD >= 0) close(readFD);
+        BOOL writePermitted = access(path.fileSystemRepresentation, W_OK) == 0;
+
+        [lines addObject:[NSString stringWithFormat:@"%@: token %@; exists %@; read %@; write-permission %@",
+                          name,
+                          tokenActive ? @"ACTIVE" : @"FAILED",
+                          exists ? @"YES" : @"NO",
+                          readable ? @"YES" : @"NO",
+                          writePermitted ? @"YES" : @"NO"]];
+
+        if (handle >= 0 && releaseToken) releaseToken(handle);
+    }
+
+    [lines addObject:@"bad_query map enumerated child names: NO"];
+    [lines addObject:@"bad_query map opened user files: NO"];
+    [lines addObject:@"bad_query map created/changed bytes: NO"];
+    dlclose(lib);
     return lines;
 }
 
@@ -440,6 +529,7 @@ static NSArray<NSString *> *DORunCMGSandboxProbe(void)
         }
 
         [lines addObjectsFromArray:DORunCMGSandboxProbe()];
+        [lines addObjectsFromArray:DOBadQueryAccessMap()];
 
         [lines addObjectsFromArray:DORuntimeEntitlementInventory()];
         [lines addObjectsFromArray:DOAppleAVE2Diagnostic()];
