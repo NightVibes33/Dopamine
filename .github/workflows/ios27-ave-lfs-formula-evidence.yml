@@ -1,0 +1,69 @@
+name: iOS27 A18 AVE LFS formula evidence
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [iphone16-ios27-v2]
+    paths:
+      - '.github/workflows/ios27-ave-lfs-formula-evidence.yml'
+      - 'Research/tools/ave_lfs_formula_evidence.py'
+      - 'Research/tools/ave_lfsoutput_dma_candidate.py'
+
+permissions:
+  contents: read
+
+jobs:
+  extract-lfs-formulas:
+    runs-on: macos-latest
+    timeout-minutes: 75
+    env:
+      B3_URL: https://updates.cdn-apple.com/2026SpringSeed/fullrestores/140-35950/D135F5B5-C2BE-4630-8AE9-C78A6F0E8381/iPhone17%2C3_27.0_24A5380h_Restore.ipsw
+      B4_URL: https://updates.cdn-apple.com/2026SpringSeed/fullrestores/140-57108/5E816D0E-89BB-4B95-8825-6A3EDF22E509/iPhone17%2C3_27.0_24A5390f_Restore.ipsw
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install exact-binary tooling
+        run: |
+          set -euxo pipefail
+          brew tap blacktop/tap
+          brew trust blacktop/tap
+          brew install blacktop/tap/ipsw
+          python3 -m pip install --user 'capstone==5.0.6'
+      - name: Extract AppleAVE2 and H17 firmware
+        run: |
+          set -euxo pipefail
+          mkdir -p kernels/b3 kernels/b4 report/kexts/b3 report/kexts/b4 containers/b3 containers/b4 report/fw/b3 report/fw/b4
+          ipsw --no-color extract --remote "$B3_URL" --kernel -o kernels/b3
+          ipsw --no-color extract --remote "$B4_URL" --kernel -o kernels/b4
+          K3="$(find kernels/b3 -type f -name 'kernelcache.release.*' -print -quit)"
+          K4="$(find kernels/b4 -type f -name 'kernelcache.release.*' -print -quit)"
+          test -s "$K3"
+          test -s "$K4"
+          ipsw --no-color kernel extract "$K3" com.apple.driver.AppleAVE2 --force -o report/kexts/b3
+          ipsw --no-color kernel extract "$K4" com.apple.driver.AppleAVE2 --force -o report/kexts/b4
+          ipsw --no-color extract --remote "$B3_URL" --pattern 'Firmware/ave/AppleAVE2FW_H17.*\.im4p$' -o containers/b3
+          ipsw --no-color extract --remote "$B4_URL" --pattern 'Firmware/ave/AppleAVE2FW_H17.*\.im4p$' -o containers/b4
+          F3="$(find containers/b3 -type f -name 'AppleAVE2FW_H17*.im4p' -print -quit)"
+          F4="$(find containers/b4 -type f -name 'AppleAVE2FW_H17*.im4p' -print -quit)"
+          ipsw --no-color img4 im4p extract "$F3" --output report/fw/b3/H17.bin
+          ipsw --no-color img4 im4p extract "$F4" --output report/fw/b4/H17.bin
+      - name: Build formula evidence bundle
+        run: |
+          set -euxo pipefail
+          python3 Research/tools/ave_lfs_formula_evidence.py \
+            report/kexts/b3/com.apple.driver.AppleAVE2 \
+            report/kexts/b4/com.apple.driver.AppleAVE2 \
+            report/fw/b3/H17.bin report/fw/b4/H17.bin \
+            report/lfs-formula-evidence.md report/lfs-formula-evidence.json
+          grep -Fq 'beta3 host LFS calculator' report/lfs-formula-evidence.md
+          grep -Fq 'beta3 H17 write-DMA routine' report/lfs-formula-evidence.md
+          grep -Fq 'does not establish formula divergence' report/lfs-formula-evidence.md
+          python3 -m json.tool report/lfs-formula-evidence.json >/dev/null
+      - name: Upload exact instruction evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios27-a18-ave-lfs-formula-evidence
+          path: |
+            report/lfs-formula-evidence.md
+            report/lfs-formula-evidence.json
+          retention-days: 14
