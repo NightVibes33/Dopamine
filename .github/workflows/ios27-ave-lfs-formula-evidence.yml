@@ -27,7 +27,8 @@ jobs:
           brew tap blacktop/tap
           brew trust blacktop/tap
           brew install blacktop/tap/ipsw
-          python3 -m pip install --user 'capstone==5.0.6'
+          python3 -m venv .venv
+          .venv/bin/python -m pip install 'capstone==5.0.6'
       - name: Extract AppleAVE2 and H17 firmware
         run: |
           set -euxo pipefail
@@ -49,7 +50,7 @@ jobs:
       - name: Build formula evidence bundle
         run: |
           set -euxo pipefail
-          python3 Research/tools/ave_lfs_formula_evidence.py \
+          .venv/bin/python Research/tools/ave_lfs_formula_evidence.py \
             report/kexts/b3/com.apple.driver.AppleAVE2 \
             report/kexts/b4/com.apple.driver.AppleAVE2 \
             report/fw/b3/H17.bin report/fw/b4/H17.bin \
@@ -57,7 +58,7 @@ jobs:
           grep -Fq 'beta3 host LFS calculator' report/lfs-formula-evidence.md
           grep -Fq 'beta3 H17 write-DMA routine' report/lfs-formula-evidence.md
           grep -Fq 'does not establish formula divergence' report/lfs-formula-evidence.md
-          python3 -m json.tool report/lfs-formula-evidence.json >/dev/null
+          .venv/bin/python -m json.tool report/lfs-formula-evidence.json >/dev/null
       - name: Upload exact instruction evidence
         if: always()
         uses: actions/upload-artifact@v4
