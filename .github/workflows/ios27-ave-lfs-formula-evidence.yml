@@ -44,8 +44,8 @@ jobs:
           test -s "$K4"
           ipsw --no-color kernel extract "$K3" com.apple.driver.AppleAVE2 --force -o report/kexts/b3
           ipsw --no-color kernel extract "$K4" com.apple.driver.AppleAVE2 --force -o report/kexts/b4
-          ipsw --no-color extract --remote "$B3_URL" --pattern 'Firmware/ave/AppleAVE2FW_H17.*\\.im4p$' -o containers/b3
-          ipsw --no-color extract --remote "$B4_URL" --pattern 'Firmware/ave/AppleAVE2FW_H17.*\\.im4p$' -o containers/b4
+          ipsw --no-color extract --remote "$B3_URL" --pattern 'Firmware/ave/AppleAVE2FW_H17.*\.im4p$' -o containers/b3
+          ipsw --no-color extract --remote "$B4_URL" --pattern 'Firmware/ave/AppleAVE2FW_H17.*\.im4p$' -o containers/b4
           F3="$(find containers/b3 -type f -name 'AppleAVE2FW_H17*.im4p' -print -quit)"
           F4="$(find containers/b4 -type f -name 'AppleAVE2FW_H17*.im4p' -print -quit)"
           ipsw --no-color img4 im4p extract "$F3" --output report/fw/b3/H17.bin
