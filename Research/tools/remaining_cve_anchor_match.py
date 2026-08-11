@@ -29,8 +29,21 @@ def sha(p):
 def corpus(root):
  out={}
  for p in sorted(x for x in root.rglob("*") if x.is_file()):
-  out[str(p)]=subprocess.run(["strings","-a",str(p)],check=True,capture_output=True,text=True,errors="replace").stdout
+  strings=subprocess.run(["strings","-a",str(p)],check=True,capture_output=True,text=True,errors="replace").stdout
+  symbols=subprocess.run(["nm","-gj",str(p)],check=False,capture_output=True,text=True,errors="replace").stdout
+  out[str(p.relative_to(root))]={"strings":strings,"symbols":symbols,"sha256":sha(p)}
  return out
+
+def hits(corpus_data, needles):
+ path_hits=sorted({needle for path in corpus_data for needle in needles if needle.lower() in path.lower()})
+ string_hits=sorted({needle for data in corpus_data.values() for needle in needles if needle in data["strings"]})
+ symbol_hits=sorted({needle for data in corpus_data.values() for needle in needles if needle in data["symbols"]})
+ return path_hits,string_hits,symbol_hits
+
+def changed_files(beta3, fixed):
+ b={Path(path).name:data["sha256"] for path,data in beta3.items()}
+ f={Path(path).name:data["sha256"] for path,data in fixed.items()}
+ return sorted(name for name in b.keys() & f.keys() if b[name] != f[name])
 
 def main():
  ap=argparse.ArgumentParser()
@@ -46,18 +59,25 @@ def main():
  for p in (n.beta3_kernel,n.fixed_kernel):
   if not p.is_file(): raise SystemExit("missing kernel: "+str(p))
  bc,fc=corpus(n.beta3_components),corpus(n.fixed_components)
+ changed=changed_files(bc,fc)
  rows=[]
  for cve,component,needles,note in ROWS:
-  bh=sorted({x for s in bc.values() for x in needles if x in s})
-  fh=sorted({x for s in fc.values() for x in needles if x in s})
+  bp,bs,by=hits(bc,needles); fp,fs,fy=hits(fc,needles)
+  component_changed=sorted(name for name in changed if component.lower() in name.lower())
   if not needles:
    disposition="deferred-no-public-code-anchor"; gap="public class/function/object/crash signature or patch hunk"
-  elif len(needles)>1 and (bh or fh):
+  elif bs or by or fs or fy:
    disposition="public-anchor-signature-observed"; gap="prove vulnerable beta-3 and patched comparator control flow"
+  elif bp or fp:
+   disposition="component-path-observed"; gap="content/symbol-level patch anchor"
   else:
    disposition="component-only-unmatched"; gap="function-level patch anchor"
   rows.append({"cve":cve,"component":component,"public_needles":needles,"public_note":note,
-   "beta3_hits":bh,"fixed_hits":fh,"disposition":disposition,"proof_gap":gap})
+   "beta3_path_hits":bp,"fixed_path_hits":fp,
+   "beta3_string_hits":bs,"fixed_string_hits":fs,
+   "beta3_symbol_hits":by,"fixed_symbol_hits":fy,
+   "component_files_changed":component_changed,
+   "disposition":disposition,"proof_gap":gap})
  report={"schema":1,"scope":{"device":"iPhone17,3","build":"24A5380h"},
   "safety":{"pocs_executed":False,"trigger_generation":False,"live_service_calls":False},
   "kernel_sha256":{"beta3":sha(n.beta3_kernel),"fixed":sha(n.fixed_kernel)},"results":rows}
