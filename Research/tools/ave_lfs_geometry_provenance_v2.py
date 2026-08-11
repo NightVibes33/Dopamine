@@ -34,7 +34,13 @@ def find_host_flow(k3_path, k4_path):
     height = flow['session_height']
     matches = []
     for function in b3.functions:
-        words = b3.words(function)
+        # Some LC_FUNCTION_STARTS entries terminate outside the extracted KEXT's
+        # file-backed __TEXT_EXEC range. They are not usable disassembly targets
+        # for this proof, so skip them instead of treating them as evidence.
+        try:
+            words = b3.words(function)
+        except (TypeError, ValueError):
+            continue
         if not words:
             continue
         all_loads = []
