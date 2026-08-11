@@ -28,8 +28,10 @@ CALC_MARKER = "AVE_CalcBufSizeOfLFSOutput"
 GUARD_MARKER = "size >= 0 && size <= 2147483647"
 
 
-def one_marker_function(macho, marker):
+def one_marker_function(macho, marker, *, allow_missing=False):
     matches = macho.functions_referencing_marker(marker)
+    if allow_missing and not matches:
+        return None
     if len(matches) != 1:
         raise RuntimeError(f"{marker}: expected one function, got {matches}")
     index, function = matches[0]
@@ -74,22 +76,39 @@ def main():
     b3, b4, fixed = (lfs.KextMachO(p) for p in sys.argv[1:4])
     idx3, fn3, fn4 = lfs.find_lfs_calc(b3, b4)
     idx4 = b4.functions.index(fn4)
-    idxf, fnf = one_marker_function(fixed, CALC_MARKER)
+    fixed_match = one_marker_function(fixed, CALC_MARKER, allow_missing=True)
     builds = {
         "beta3_24A5380h": fingerprint(b3, idx3, fn3),
         "beta4_24A5390f": fingerprint(b4, idx4, fn4),
-        "fixed_26_6_23G71": fingerprint(fixed, idxf, fnf),
     }
-    b3f, b4f, fixf = builds.values()
+    if fixed_match is None:
+        builds["fixed_26_6_23G71"] = {
+            "available": False,
+            "reason": f"{CALC_MARKER} marker not found",
+        }
+    else:
+        idxf, fnf = fixed_match
+        builds["fixed_26_6_23G71"] = {
+            "available": True,
+            **fingerprint(fixed, idxf, fnf),
+        }
+    b3f = builds["beta3_24A5380h"]
+    b4f = builds["beta4_24A5390f"]
+    fixf = builds["fixed_26_6_23G71"]
+    fixed_comparable = fixf.get("available", False)
     observations = {
         "beta3_lacks_guard": not b3f["wide_guard"],
         "beta4_has_guard": b4f["wide_guard"],
-        "fixed_has_guard": fixf["wide_guard"],
         "beta3_32bit_dominant": b3f["width_counts"]["w32"] > b3f["width_counts"]["x64"],
         "beta4_64bit_dominant": b4f["width_counts"]["x64"] > b4f["width_counts"]["w32"],
-        "fixed_64bit_dominant": fixf["width_counts"]["x64"] > fixf["width_counts"]["w32"],
+        "fixed_calculator_comparable": fixed_comparable,
+        "fixed_has_guard": fixf["wide_guard"] if fixed_comparable else None,
+        "fixed_64bit_dominant": (
+            fixf["width_counts"]["x64"] > fixf["width_counts"]["w32"]
+            if fixed_comparable else None
+        ),
     }
-    compatible = all(observations.values())
+    compatible = fixed_comparable and all(value is True for value in observations.values())
     report = {
         "schema": 1,
         "scope": "offline exact-binary correlation; no trigger generation or device interaction",
@@ -97,9 +116,17 @@ def main():
         "builds": builds,
         "observations": observations,
         "assessment": {
-            "disposition": "deferred-compatible-hardening" if compatible else "deferred-no-correlation",
-            "survives": "uncertain" if compatible else "no",
+            "disposition": (
+                "deferred-compatible-hardening" if compatible
+                else "deferred-fixed-function-unmatched" if not fixed_comparable
+                else "deferred-no-correlation"
+            ),
+            "survives": "uncertain",
             "identity_claimed": False,
+            "counterevidence": (
+                None if fixed_comparable
+                else f"fixed 26.6 AppleAVE2 has no {CALC_MARKER} marker"
+            ),
             "proof_gap": "public vulnerable function, crash signature, or researcher patch anchor linking CVE-2026-64747 to this LFS calculator",
         },
     }
@@ -110,8 +137,14 @@ def main():
         "| Build | Function index | Instructions | 64-bit ops | 32-bit ops | Wide-size guard |", "|---|---:|---:|---:|---:|---|",
     ]
     for name, row in builds.items():
-        lines.append(f"| `{name}` | {row['function_index']} | {row['instruction_count']} | {row['width_counts']['x64']} | {row['width_counts']['w32']} | {'yes' if row['wide_guard'] else 'no'} |")
-    lines += ["", "## Assessment", "", f"Disposition: `{report['assessment']['disposition']}`.", "", "The LFS widening is compatible with the advisory's improved size validation, but binary similarity alone does not identify a CVE. CVE identity remains unconfirmed until a public function, crash signature, or patch anchor maps the advisory to this calculator.", ""]
+        if row.get("available", True):
+            lines.append(f"| `{name}` | {row['function_index']} | {row['instruction_count']} | {row['width_counts']['x64']} | {row['width_counts']['w32']} | {'yes' if row['wide_guard'] else 'no'} |")
+        else:
+            lines.append(f"| `{name}` | n/a | n/a | n/a | n/a | marker absent |")
+    lines += ["", "## Assessment", "", f"Disposition: `{report['assessment']['disposition']}`.", ""]
+    if not fixed_comparable:
+        lines += [f"Counterevidence: fixed iOS 26.6 AppleAVE2 does not contain the `{CALC_MARKER}` marker, so this workflow cannot compare the same named calculator across all three builds.", ""]
+    lines += ["The beta 3 to beta 4 LFS widening remains real, but the fixed-build mismatch does not support identifying it as CVE-2026-64747. CVE identity remains unconfirmed until a public function, crash signature, or patch anchor maps the advisory to this calculator.", ""]
     Path(sys.argv[4]).write_text("\n".join(lines))
     print("\n".join(lines))
 
