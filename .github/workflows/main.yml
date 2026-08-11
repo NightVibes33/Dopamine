@@ -1,5 +1,6 @@
 name: "Dopamine: build and upload"
 
+# Manual IPA rebuild requested 2026-08-10
 on:
   push:
     branches:
