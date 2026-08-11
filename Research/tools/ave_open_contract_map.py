@@ -34,7 +34,9 @@ def words(macho, start):
 def decode_mov_wide(word):
     # MOVZ/MOVK (32-bit). Return operation, destination, 16-bit immediate, shift.
     masked = word & 0x7F800000
-    if masked == 0x52800000:
+    if masked == 0x12800000:
+        op = "movn"
+    elif masked == 0x52800000:
         op = "movz"
     elif masked == 0x72800000:
         op = "movk"
@@ -50,7 +52,9 @@ def return_constants(insns):
         decoded = decode_mov_wide(word)
         if decoded:
             op, reg, imm, shift = decoded
-            if op == "movz":
+            if op == "movn":
+                regs[reg] = (~(imm << shift)) & 0xFFFFFFFF
+            elif op == "movz":
                 regs[reg] = (imm << shift) & 0xFFFFFFFF
             elif reg in regs:
                 mask = 0xFFFF << shift
