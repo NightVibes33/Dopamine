@@ -28,8 +28,8 @@ jobs:
       FILZA_UPSTREAM_NAME: FilzaSlop-v1.0.0-unsigned.ipa
       FILZA_UPSTREAM_SHA256: 0f7df472d18e4dd8eef521255562a1ff4a44c8e9e4035e29c9a72c2e9a2dbbd3
       FILZA_FORK_REPO: NightVibes33/FilzaSlop
-      FILZA_FORK_COMMIT: aa6c67f3f0f505fa9e1aca45be02bc9b7175e958
-      FILZA_FORK_IPA: FilzaSlop-full-ByeTunes-aa6c67f.ipa
+      FILZA_FORK_COMMIT: 462900fd5f15e5fba6558eb80677d9acafb42961
+      FILZA_FORK_IPA: FilzaSlop-full-ByeTunes-462900f.ipa
 
     steps:
       - name: Xcode 26.2 / iOS 26.2 Setup
@@ -133,7 +133,7 @@ jobs:
           FILZA_ARCHS="$(lipo -archs "$FILZA_BIN")"
           echo "$FILZA_ARCHS" | tr ' ' '\n' | grep -Eq '^arm64(e)?$'
 
-      - name: Build complete ByeTunes + Filza dylib and replace upstream payload
+      - name: Build in-place ByeTunes + Filza dylib and replace upstream payload
         run: |
           set -euxo pipefail
           export BASEDIR="$(pwd)"
@@ -162,7 +162,8 @@ jobs:
           echo "Fork dylib architectures: $BUILT_ARCHS"
           test "$BUILT_ARCHS" = "arm64"
           grep -aFq 'ByeTunesEmbeddedHostFactory' "$BUILT_DYLIB"
-          grep -aFq '[ByeTunesFull]' "$BUILT_DYLIB"
+          grep -aFq '[ByeTunesPort]' "$BUILT_DYLIB"
+          grep -aFq 'TGMusicLibraryViewController' "$BUILT_DYLIB"
           grep -aFq 'DownloadView' "$BUILT_DYLIB"
           grep -aFq 'RingtonesView' "$BUILT_DYLIB"
           grep -aFq 'SettingsView' "$BUILT_DYLIB"
@@ -229,7 +230,8 @@ jobs:
           test "$FINAL_COUNT" = "1"
           FINAL_HASH="$(shasum -a 256 "$FINAL_DYLIBS" | awk '{print $1}')"
           test "$FINAL_HASH" = "$BUILT_HASH"
-          grep -aFq '[ByeTunesFull]' "$FINAL_DYLIBS"
+          grep -aFq '[ByeTunesPort]' "$FINAL_DYLIBS"
+          grep -aFq 'TGMusicLibraryViewController' "$FINAL_DYLIBS"
           grep -aFq 'DownloadView' "$FINAL_DYLIBS"
           grep -aFq 'RingtonesView' "$FINAL_DYLIBS"
           grep -aFq 'SettingsView' "$FINAL_DYLIBS"
@@ -240,7 +242,7 @@ jobs:
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$FINAL_APP/Info.plist")" = "com.apple.mobile.MobileHouseArrest"
           test "$(/usr/libexec/PlistBuddy -c 'Print :UIFileSharingEnabled' "$FINAL_APP/Info.plist")" = "true"
           /usr/libexec/PlistBuddy -c 'Print :CFBundleDocumentTypes' "$FINAL_APP/Info.plist"
-          echo "Verified complete ByeTunes resources and dylib SHA-256: $FINAL_HASH"
+          echo "Verified in-place ByeTunes resources and dylib SHA-256: $FINAL_HASH"
           shasum -a 256 "$GITHUB_WORKSPACE/$FILZA_FORK_IPA"
 
       - name: Build real-device IPA
@@ -328,7 +330,8 @@ jobs:
           - upstream base SHA-256: ${FILZA_UPSTREAM_SHA256}
           - replacement dylib source: https://github.com/${FILZA_FORK_REPO}
           - replacement dylib source commit: ${FILZA_FORK_COMMIT}
-          - complete ByeTunes app root embedded via original ContentView
+          - complete ByeTunes ContentView embedded in-place inside Filza TGMusicLibraryViewController
+          - no separate ByeTunes modal launcher or reduced custom music table in the compiled target
           - complete ByeTunes source pin: NightVibes33/ByeTunes@1a90f9e0f2b1a1787b208809ad2373f5c52175c8
           - 47 original ByeTunes Swift files compiled; only standalone @main shell omitted
           - original downloader, music, ringtones, settings, metadata, lyrics, logs, onboarding, intents and YouTubeKit included
