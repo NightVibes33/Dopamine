@@ -77,12 +77,16 @@ jobs:
 
       - name: Build and Install trustcache
         run: |
-          set -x
+          set -euxo pipefail
           git clone https://github.com/CRKatri/trustcache
           cd trustcache
-          export CFLAGS="$CFLAGS -I$(brew --prefix openssl)/include -arch arm64"
-          export LDFLAGS="$LDFLAGS -L$(brew --prefix openssl)/lib -arch arm64"
+          # trustcache is a host-side build utility. On macos-26-intel it must
+          # be built for the x86_64 runner; the actual iPhoneOS target remains arm64.
+          export CFLAGS="$CFLAGS -I$(brew --prefix openssl)/include"
+          export LDFLAGS="$LDFLAGS -L$(brew --prefix openssl)/lib"
           gmake -j$(sysctl -n hw.logicalcpu) OPENSSL=1
+          file trustcache
+          test "$(uname -m)" = "x86_64"
           sudo cp trustcache /opt/procursus/bin/
 
       - name: Set Environment Variables
