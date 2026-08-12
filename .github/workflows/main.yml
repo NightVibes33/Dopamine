@@ -27,6 +27,12 @@ concurrency:
 jobs:
   build:
     runs-on: macos-26-intel
+    env:
+      FILZA_UPSTREAM_NAME: FilzaSlop-v1.0.0-unsigned.ipa
+      FILZA_UPSTREAM_SHA256: 0f7df472d18e4dd8eef521255562a1ff4a44c8e9e4035e29c9a72c2e9a2dbbd3
+      FILZA_FORK_REPO: NightVibes33/FilzaSlop
+      FILZA_FORK_COMMIT: 3fc3a0a1f55b2cacd922e550580874178a4f0ce2
+      FILZA_FORK_IPA: FilzaSlop-fork-3fc3a0a.ipa
     steps:
       - name: Xcode 26.2 / iOS 26.2 Setup
         uses: maxim-lobanov/setup-xcode@v1
@@ -108,6 +114,91 @@ jobs:
           cd Application/Dopamine/Resources
           ./download_bootstraps.sh
 
+      - name: Fetch verified upstream FilzaSlop base
+        run: |
+          set -euxo pipefail
+          curl -fL --retry 3 \
+            "https://github.com/0xjohnnydev/FilzaSlop/releases/download/v1.0.0/${FILZA_UPSTREAM_NAME}" \
+            -o "${FILZA_UPSTREAM_NAME}"
+          echo "${FILZA_UPSTREAM_SHA256}  ${FILZA_UPSTREAM_NAME}" | shasum -a 256 -c -
+
+          rm -rf /tmp/filzaslop-upstream-check
+          mkdir -p /tmp/filzaslop-upstream-check
+          unzip -q "${FILZA_UPSTREAM_NAME}" -d /tmp/filzaslop-upstream-check
+          FILZA_APP="$(find /tmp/filzaslop-upstream-check/Payload -maxdepth 1 -type d -name '*.app' | head -1)"
+          test -n "$FILZA_APP"
+          FILZA_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$FILZA_APP/Info.plist")"
+          test "$FILZA_ID" = "com.apple.mobile.MobileHouseArrest"
+          FILZA_EXECUTABLE="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$FILZA_APP/Info.plist")"
+          FILZA_BIN="$FILZA_APP/$FILZA_EXECUTABLE"
+          test -f "$FILZA_BIN"
+          file "$FILZA_BIN"
+          FILZA_ARCHS="$(lipo -archs "$FILZA_BIN")"
+          echo "$FILZA_ARCHS" | tr ' ' '\n' | grep -Eq '^arm64(e)?$'
+
+      - name: Build forked FilzaSlop dylib and replace upstream payload
+        run: |
+          set -euxo pipefail
+          export BASEDIR="$(pwd)"
+          export THEOS="${BASEDIR}/theos"
+          export DEVELOPER_DIR="/Applications/Xcode_26.2.app/Contents/Developer"
+
+          rm -rf /tmp/filzaslop-src /tmp/filzaslop-patched /tmp/filzaslop-final-check
+          git clone "https://github.com/${FILZA_FORK_REPO}.git" /tmp/filzaslop-src
+          cd /tmp/filzaslop-src
+          git checkout --detach "$FILZA_FORK_COMMIT"
+          test "$(git rev-parse HEAD)" = "$FILZA_FORK_COMMIT"
+
+          # The fork declares SDK 17.5, but this runner has an authenticated Xcode 26.2
+          # device SDK. Theos supports Xcode SDK discovery, so use the selected latest
+          # SDK while preserving the fork's iOS 15.0 deployment target.
+          gmake clean || true
+          gmake -j"$(sysctl -n hw.logicalcpu)" all FINALPACKAGE=1 TARGET=iphone:clang:latest:15.0
+
+          BUILT_DYLIBS="$(find .theos -type f -name 'FilzaApplySandboxExt.dylib' -print)"
+          BUILT_COUNT="$(printf '%s\n' "$BUILT_DYLIBS" | sed '/^$/d' | wc -l | tr -d ' ')"
+          test "$BUILT_COUNT" = "1"
+          BUILT_DYLIB="$BUILT_DYLIBS"
+          file "$BUILT_DYLIB"
+          BUILT_ARCHS="$(lipo -archs "$BUILT_DYLIB")"
+          echo "Fork dylib architectures: $BUILT_ARCHS"
+          echo "$BUILT_ARCHS" | tr ' ' '\n' | grep -qx arm64
+          BUILT_HASH="$(shasum -a 256 "$BUILT_DYLIB" | awk '{print $1}')"
+          echo "Fork dylib SHA-256: $BUILT_HASH"
+
+          mkdir -p /tmp/filzaslop-patched
+          unzip -q "$GITHUB_WORKSPACE/$FILZA_UPSTREAM_NAME" -d /tmp/filzaslop-patched
+          FILZA_APP="$(find /tmp/filzaslop-patched/Payload -maxdepth 1 -type d -name '*.app' | head -1)"
+          test -n "$FILZA_APP"
+          FILZA_EXECUTABLE="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$FILZA_APP/Info.plist")"
+          FILZA_BIN="$FILZA_APP/$FILZA_EXECUTABLE"
+          test -f "$FILZA_BIN"
+
+          DYLIB_PATHS="$(find "$FILZA_APP" -type f -name 'FilzaApplySandboxExt.dylib' -print)"
+          DYLIB_COUNT="$(printf '%s\n' "$DYLIB_PATHS" | sed '/^$/d' | wc -l | tr -d ' ')"
+          test "$DYLIB_COUNT" = "1"
+          FILZA_DYLIB="$DYLIB_PATHS"
+
+          # Preserve the upstream Mach-O injection/load-command layout exactly.
+          otool -L "$FILZA_BIN" | grep -Fq 'FilzaApplySandboxExt.dylib'
+          cp -f "$BUILT_DYLIB" "$FILZA_DYLIB"
+          ldid -S "$FILZA_DYLIB"
+          PATCHED_HASH="$(shasum -a 256 "$FILZA_DYLIB" | awk '{print $1}')"
+          test "$PATCHED_HASH" = "$BUILT_HASH"
+
+          cd /tmp/filzaslop-patched
+          zip -qry "$GITHUB_WORKSPACE/$FILZA_FORK_IPA" Payload
+
+          mkdir -p /tmp/filzaslop-final-check
+          unzip -q "$GITHUB_WORKSPACE/$FILZA_FORK_IPA" -d /tmp/filzaslop-final-check
+          FINAL_DYLIBS="$(find /tmp/filzaslop-final-check/Payload -type f -name 'FilzaApplySandboxExt.dylib' -print)"
+          FINAL_COUNT="$(printf '%s\n' "$FINAL_DYLIBS" | sed '/^$/d' | wc -l | tr -d ' ')"
+          test "$FINAL_COUNT" = "1"
+          FINAL_HASH="$(shasum -a 256 "$FINAL_DYLIBS" | awk '{print $1}')"
+          test "$FINAL_HASH" = "$BUILT_HASH"
+          echo "Verified packaged fork dylib SHA-256: $FINAL_HASH"
+          shasum -a 256 "$GITHUB_WORKSPACE/$FILZA_FORK_IPA"
+
       - name: Build real-device IPA
         run: |
           set -euxo pipefail
@@ -116,7 +207,29 @@ jobs:
           export DEVELOPER_DIR="/Applications/Xcode_26.2.app/Contents/Developer"
           gmake -j$(sysctl -n hw.logicalcpu) NIGHTLY=1
 
-      - name: Verify arm64 iPhoneOS IPA and no Apple signing identity
+      - name: Bundle forked FilzaSlop IPA inside Dopamine IPA
+        run: |
+          set -euxo pipefail
+          test -f Application/Dopamine.ipa
+          test -f "$FILZA_FORK_IPA"
+
+          rm -rf /tmp/dopamine-embed
+          mkdir -p /tmp/dopamine-embed
+          unzip -q Application/Dopamine.ipa -d /tmp/dopamine-embed
+          APP="/tmp/dopamine-embed/Payload/Dopamine.app"
+          test -d "$APP"
+          cp -f "$FILZA_FORK_IPA" "$APP/FilzaSlop.ipa"
+          test -f "$APP/FilzaSlop.ipa"
+
+          # Re-apply the same ad-hoc signature style used by Application/Makefile.
+          ldid -SApplication/Dopamine/Dopamine.entitlements "$APP/Dopamine"
+          ldid -s "$APP"
+
+          rm -f Application/Dopamine.ipa
+          cd /tmp/dopamine-embed
+          zip -qry "$GITHUB_WORKSPACE/Application/Dopamine.ipa" Payload
+
+      - name: Verify arm64 iPhoneOS IPA, embedded Filza, and no Apple signing identity
         run: |
           set -euxo pipefail
           test -f Application/Dopamine.ipa
@@ -127,6 +240,8 @@ jobs:
           BIN="$APP/Dopamine"
           test -d "$APP"
           test -f "$BIN"
+          test -f "$APP/FilzaSlop.ipa"
+          cmp -s "$FILZA_FORK_IPA" "$APP/FilzaSlop.ipa"
           file "$BIN"
           ARCHS="$(lipo -archs "$BIN")"
           echo "Device binary architectures: $ARCHS"
@@ -142,33 +257,10 @@ jobs:
             echo "Unexpected Apple/developer signing authority found" >&2
             exit 1
           fi
-          plutil -p "$APP/Info.plist" | head -200
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist"
+          shasum -a 256 "$APP/FilzaSlop.ipa"
+          shasum -a 256 Application/Dopamine.ipa
           du -h Application/Dopamine.ipa
-
-      - name: Fetch and verify FilzaSlop companion
-        run: |
-          set -euxo pipefail
-          FILZA_NAME="FilzaSlop-v1.0.0-unsigned.ipa"
-          FILZA_SHA256="0f7df472d18e4dd8eef521255562a1ff4a44c8e9e4035e29c9a72c2e9a2dbbd3"
-          curl -fL --retry 3 \
-            "https://github.com/0xjohnnydev/FilzaSlop/releases/download/v1.0.0/${FILZA_NAME}" \
-            -o "${FILZA_NAME}"
-          echo "${FILZA_SHA256}  ${FILZA_NAME}" | shasum -a 256 -c -
-          rm -rf /tmp/filzaslop-ipa-check
-          mkdir -p /tmp/filzaslop-ipa-check
-          unzip -q "${FILZA_NAME}" -d /tmp/filzaslop-ipa-check
-          FILZA_APP="$(find /tmp/filzaslop-ipa-check/Payload -maxdepth 1 -type d -name '*.app' | head -1)"
-          test -n "$FILZA_APP"
-          FILZA_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$FILZA_APP/Info.plist")"
-          echo "FilzaSlop bundle identifier: $FILZA_ID"
-          test "$FILZA_ID" = "com.apple.mobile.MobileHouseArrest"
-          FILZA_EXECUTABLE="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$FILZA_APP/Info.plist")"
-          FILZA_BIN="$FILZA_APP/$FILZA_EXECUTABLE"
-          test -f "$FILZA_BIN"
-          file "$FILZA_BIN"
-          FILZA_ARCHS="$(lipo -archs "$FILZA_BIN")"
-          echo "FilzaSlop architectures: $FILZA_ARCHS"
-          echo "$FILZA_ARCHS" | tr ' ' '\n' | grep -Eq '^arm64(e)?$'
 
       - name: Assemble Dopamine + FilzaSlop research kit
         run: |
@@ -176,17 +268,24 @@ jobs:
           rm -rf ResearchKit
           mkdir -p ResearchKit
           cp Application/Dopamine.ipa ResearchKit/Dopamine.ipa
-          cp FilzaSlop-v1.0.0-unsigned.ipa ResearchKit/FilzaSlop-v1.0.0-unsigned.ipa
-          cat > ResearchKit/MANIFEST.txt <<'EOF'
+          cp "$FILZA_FORK_IPA" ResearchKit/FilzaSlop-fork.ipa
+          DOPAMINE_SHA="$(shasum -a 256 Application/Dopamine.ipa | awk '{print $1}')"
+          FILZA_FINAL_SHA="$(shasum -a 256 "$FILZA_FORK_IPA" | awk '{print $1}')"
+          cat > ResearchKit/MANIFEST.txt <<EOF
           Dopamine iPhone 16 / iOS 27 research kit
 
           Dopamine:
           - real-device arm64 iPhoneOS IPA
           - Apple code signing disabled; ldid/ad-hoc packaged by the project
+          - bundled companion path: Payload/Dopamine.app/FilzaSlop.ipa
+          - SHA-256: ${DOPAMINE_SHA}
 
           FilzaSlop companion:
-          - upstream release: v1.0.0
-          - SHA-256: 0f7df472d18e4dd8eef521255562a1ff4a44c8e9e4035e29c9a72c2e9a2dbbd3
+          - upstream base release: v1.0.0
+          - upstream base SHA-256: ${FILZA_UPSTREAM_SHA256}
+          - replacement dylib source: https://github.com/${FILZA_FORK_REPO}
+          - replacement dylib source commit: ${FILZA_FORK_COMMIT}
+          - final rebuilt IPA SHA-256: ${FILZA_FINAL_SHA}
           - required bundle identifier: com.apple.mobile.MobileHouseArrest
           - preserve that identifier when signing
           EOF
@@ -194,7 +293,7 @@ jobs:
       - name: Upload Dopamine IPA
         uses: actions/upload-artifact@v4
         with:
-          name: Dopamine-iOS26-macOS26-Intel-unsigned-device
+          name: Dopamine-iOS27-FilzaFork-unsigned-device
           path: ${{ github.workspace }}/Application/Dopamine.ipa
           if-no-files-found: error
           retention-days: 14
@@ -202,7 +301,7 @@ jobs:
       - name: Upload Dopamine + FilzaSlop research kit
         uses: actions/upload-artifact@v4
         with:
-          name: Dopamine-FilzaSlop-iOS26-ResearchKit
+          name: Dopamine-FilzaSlop-fork-iOS27-ResearchKit
           path: ${{ github.workspace }}/ResearchKit
           if-no-files-found: error
           retention-days: 14
