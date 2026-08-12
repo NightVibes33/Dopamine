@@ -93,6 +93,73 @@ jobs:
           ipsw kernel extract "$BETA3_KERNEL" --all --force --output extracted/beta3
           ipsw kernel extract "$BETA5_KERNEL" --all --force --output extracted/beta5
 
+      - name: Build focused static diffs for priority kernel components
+        run: |
+          set -euxo pipefail
+          mkdir -p report/focused/beta3 report/focused/beta5 report/focused/diffs
+
+          targets=(
+            com.apple.driver.AppleAVE2
+            com.apple.iokit.IOSurface
+            com.apple.iokit.IOGPUFamily
+            com.apple.AGXG17P
+          )
+
+          for target in "${targets[@]}"; do
+            for build in beta3 beta5; do
+              input="extracted/${build}/${target}"
+              out="report/focused/${build}/${target}"
+              test -f "$input"
+
+              ipsw macho info "$input" --starts --no-color > "${out}.starts.txt" 2>&1 || true
+              ipsw macho info "$input" --symbols --no-color > "${out}.symbols.txt" 2>&1 || true
+              ipsw macho info "$input" --strings --no-color > "${out}.strings.txt" 2>&1 || true
+
+              if ! ipsw macho disass "$input" --section '__TEXT_EXEC.__text' --quiet --no-color > "${out}.text-disassembly.txt" 2>&1; then
+                ipsw macho disass "$input" --section '__TEXT.__text' --quiet --no-color > "${out}.text-disassembly.txt" 2>&1 || true
+              fi
+            done
+
+            for kind in starts symbols strings text-disassembly; do
+              diff -u \
+                "report/focused/beta3/${target}.${kind}.txt" \
+                "report/focused/beta5/${target}.${kind}.txt" \
+                > "report/focused/diffs/${target}.${kind}.diff" || true
+            done
+          done
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+
+          base = Path('report/focused')
+          targets = [
+              'com.apple.driver.AppleAVE2',
+              'com.apple.iokit.IOSurface',
+              'com.apple.iokit.IOGPUFamily',
+              'com.apple.AGXG17P',
+          ]
+          kinds = ['starts', 'symbols', 'strings', 'text-disassembly']
+          summary = {}
+          for target in targets:
+              summary[target] = {}
+              for kind in kinds:
+                  b3 = base / 'beta3' / f'{target}.{kind}.txt'
+                  b5 = base / 'beta5' / f'{target}.{kind}.txt'
+                  d = base / 'diffs' / f'{target}.{kind}.diff'
+                  summary[target][kind] = {
+                      'beta3_lines': len(b3.read_text(errors='replace').splitlines()),
+                      'beta5_lines': len(b5.read_text(errors='replace').splitlines()),
+                      'diff_lines': len(d.read_text(errors='replace').splitlines()),
+                      'diff_bytes': d.stat().st_size,
+                  }
+          (base / 'summary.json').write_text(json.dumps(summary, indent=2))
+
+          with Path('report/README.md').open('a') as f:
+              f.write('\n## Focused static comparison\n\n')
+              f.write('Generated function-start, symbol, cstring, and text-section disassembly comparisons for AppleAVE2, IOSurface, IOGPUFamily, and AGXG17P. These are offline patch-localization artifacts; a changed function or instruction sequence is not by itself an exploit trigger.\n')
+          PY
+
       - name: Build hash-level change report
         run: |
           set -euxo pipefail
