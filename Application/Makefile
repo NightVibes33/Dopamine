@@ -15,12 +15,14 @@ Dopamine.ipa: build/Build/Products/Debug-iphoneos/Dopamine.app
 	rm -rf Dopamine.tipa
 	cp Dopamine.ipa Dopamine.tipa
 
+XCODE_DEVICE_FLAGS = -sdk iphoneos SDKROOT=iphoneos SUPPORTED_PLATFORMS=iphoneos SUPPORTS_MACCATALYST=NO ARCHS=arm64 ONLY_ACTIVE_ARCH=NO CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO
+
 ifeq ($(NIGHTLY), 1)
 build/Build/Products/Debug-iphoneos/Dopamine.app: FORCE
-	xcodebuild -scheme Dopamine -derivedDataPath build -destination 'generic/platform=iOS' CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO GCC_PREPROCESSOR_DEFINITIONS='NIGHTLY=1 COMMIT_HASH=\"$(COMMIT_HASH)\"'
+	xcodebuild -scheme Dopamine -derivedDataPath build $(XCODE_DEVICE_FLAGS) GCC_PREPROCESSOR_DEFINITIONS='NIGHTLY=1 COMMIT_HASH=\"$(COMMIT_HASH)\"' build
 else
 build/Build/Products/Debug-iphoneos/Dopamine.app: FORCE
-	xcodebuild -scheme Dopamine -derivedDataPath build -destination 'generic/platform=iOS' CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO
+	xcodebuild -scheme Dopamine -derivedDataPath build $(XCODE_DEVICE_FLAGS) build
 endif
 
 clean:
