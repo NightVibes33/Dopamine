@@ -1,8 +1,5 @@
 name: "Dopamine: build and upload"
 
-# Real-device unsigned/ad-hoc IPA build for iphone16-ios27-v2.
-# Pinned to GitHub's macOS 26 Intel image and Xcode 26.2 / iOS 26.2 SDK so
-# actool has a matching preinstalled iOS 26.2 simulator runtime.
 on:
   push:
     branches:
@@ -33,6 +30,7 @@ jobs:
       FILZA_FORK_REPO: NightVibes33/FilzaSlop
       FILZA_FORK_COMMIT: 12676c48c2f88cb615dce2c6fccd7f0f5e94559f
       FILZA_FORK_IPA: FilzaSlop-fork-12676c4.ipa
+
     steps:
       - name: Xcode 26.2 / iOS 26.2 Setup
         uses: maxim-lobanov/setup-xcode@v1
@@ -65,7 +63,7 @@ jobs:
       - name: Install better GNU Make
         run: |
           brew install make
-          echo "PATH=$(brew --prefix make)/libexec/gnubin:$PATH" >> $GITHUB_ENV
+          echo "PATH=$(brew --prefix make)/libexec/gnubin:$PATH" >> "$GITHUB_ENV"
 
       - name: Install THEOS
         run: |
@@ -100,13 +98,12 @@ jobs:
           T2=$(TZ=UTC-2 date +'%Y%m%d_%H%M%S')
           TS=$(date -j -f "%Y%m%d_%H%M%S" "${T2}" +%s)
           SHASH=$(git rev-parse --short HEAD)
-          echo "ctime=${T2}" >> $GITHUB_ENV
-          echo "ctimestamp=${TS}" >> $GITHUB_ENV
-          echo "shorthash=${SHASH}" >> $GITHUB_ENV
+          echo "ctime=${T2}" >> "$GITHUB_ENV"
+          echo "ctimestamp=${TS}" >> "$GITHUB_ENV"
+          echo "shorthash=${SHASH}" >> "$GITHUB_ENV"
 
       - name: Install libarchive
-        run: |
-          brew install libarchive
+        run: brew install libarchive
 
       - name: Download Bootstraps
         run: |
@@ -149,29 +146,26 @@ jobs:
           git checkout --detach "$FILZA_FORK_COMMIT"
           test "$(git rev-parse HEAD)" = "$FILZA_FORK_COMMIT"
 
-          # Build the same pinned ByeTunes-compatible idevice AFC/RPPairing
-          # static library that the Filza fork CI links into its arm64 dylib.
           bash scripts/build-idevice.sh "$PWD/Vendor/idevice"
           test "$(cat Vendor/idevice/COMMIT)" = "37ee77cf713f483551f3cf33ea8b2087a40058ca"
           test -s Vendor/idevice/lib/libidevice_ffi.a
 
-          # The fork declares SDK 17.5, but this runner has an authenticated Xcode 26.2
-          # device SDK. Theos supports Xcode SDK discovery, so use the selected latest
-          # SDK while preserving the fork's iOS 15.0 deployment target.
           gmake clean || true
           gmake -j"$(sysctl -n hw.logicalcpu)" all FINALPACKAGE=1 TARGET=iphone:clang:latest:15.0
 
-          # The upstream Filza host is arm64-only, so the replacement tweak is
-          # deliberately arm64-only as well. Select the canonical linked artifact.
           BUILT_DYLIB=".theos/obj/FilzaApplySandboxExt.dylib"
           test -f "$BUILT_DYLIB"
           file "$BUILT_DYLIB"
           BUILT_ARCHS="$(lipo -archs "$BUILT_DYLIB")"
           echo "Fork dylib architectures: $BUILT_ARCHS"
           test "$BUILT_ARCHS" = "arm64"
-          strings "$BUILT_DYLIB" | grep -Fq '[ByeTunesUI]'
-          strings "$BUILT_DYLIB" | grep -Fq '/iTunes_Control/iTunes/MediaLibrary.sqlitedb'
-          strings "$BUILT_DYLIB" | grep -Fq 'Music Library'
+
+          # Search the Mach-O directly. Piping Apple's `strings` into grep -q
+          # causes strings to report a broken/closed output pipe after grep exits.
+          grep -aFq '[ByeTunesUI]' "$BUILT_DYLIB"
+          grep -aFq '/iTunes_Control/iTunes/MediaLibrary.sqlitedb' "$BUILT_DYLIB"
+          grep -aFq 'Music Library' "$BUILT_DYLIB"
+
           BUILT_HASH="$(shasum -a 256 "$BUILT_DYLIB" | awk '{print $1}')"
           echo "Fork dylib SHA-256: $BUILT_HASH"
 
@@ -188,8 +182,6 @@ jobs:
           test "$DYLIB_COUNT" = "1"
           FILZA_DYLIB="$DYLIB_PATHS"
 
-          # Preserve the upstream Mach-O injection/load-command layout exactly and
-          # preserve the Theos-signed dylib bytes exactly during the replacement.
           otool -L "$FILZA_BIN" | grep -Fq 'FilzaApplySandboxExt.dylib'
           cp -f "$BUILT_DYLIB" "$FILZA_DYLIB"
           PATCHED_HASH="$(shasum -a 256 "$FILZA_DYLIB" | awk '{print $1}')"
@@ -205,7 +197,7 @@ jobs:
           test "$FINAL_COUNT" = "1"
           FINAL_HASH="$(shasum -a 256 "$FINAL_DYLIBS" | awk '{print $1}')"
           test "$FINAL_HASH" = "$BUILT_HASH"
-          strings "$FINAL_DYLIBS" | grep -Fq '[ByeTunesUI]'
+          grep -aFq '[ByeTunesUI]' "$FINAL_DYLIBS"
           echo "Verified packaged fork dylib SHA-256: $FINAL_HASH"
           shasum -a 256 "$GITHUB_WORKSPACE/$FILZA_FORK_IPA"
 
@@ -231,7 +223,6 @@ jobs:
           cp -f "$FILZA_FORK_IPA" "$APP/FilzaSlop.ipa"
           test -f "$APP/FilzaSlop.ipa"
 
-          # Re-apply the same ad-hoc signature style used by Application/Makefile.
           ldid -SApplication/Dopamine/Dopamine.entitlements "$APP/Dopamine"
           ldid -s "$APP"
 
