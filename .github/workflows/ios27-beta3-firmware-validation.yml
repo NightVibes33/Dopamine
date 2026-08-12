@@ -21,7 +21,9 @@ jobs:
       - name: Install ipsw research tooling
         run: |
           set -euxo pipefail
-          brew install blacktop/tap/ipsw jq
+          brew tap blacktop/tap
+          brew trust blacktop/tap
+          brew install --formula blacktop/tap/ipsw jq
           ipsw version || ipsw --version
 
       - name: Download beta 3 and beta 5 kernelcaches
