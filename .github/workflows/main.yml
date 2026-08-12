@@ -155,10 +155,10 @@ jobs:
           gmake clean || true
           gmake -j"$(sysctl -n hw.logicalcpu)" all FINALPACKAGE=1 TARGET=iphone:clang:latest:15.0
 
-          BUILT_DYLIBS="$(find .theos -type f -name 'FilzaApplySandboxExt.dylib' -print)"
-          BUILT_COUNT="$(printf '%s\n' "$BUILT_DYLIBS" | sed '/^$/d' | wc -l | tr -d ' ')"
-          test "$BUILT_COUNT" = "1"
-          BUILT_DYLIB="$BUILT_DYLIBS"
+          # Theos creates per-architecture and dSYM copies in addition to this
+          # canonical merged dylib. Select the merged artifact deterministically.
+          BUILT_DYLIB=".theos/obj/FilzaApplySandboxExt.dylib"
+          test -f "$BUILT_DYLIB"
           file "$BUILT_DYLIB"
           BUILT_ARCHS="$(lipo -archs "$BUILT_DYLIB")"
           echo "Fork dylib architectures: $BUILT_ARCHS"
