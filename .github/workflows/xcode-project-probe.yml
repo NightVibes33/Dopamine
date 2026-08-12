@@ -1,0 +1,49 @@
+name: "Xcode project target probe"
+
+on:
+  push:
+    branches:
+      - iphone16-ios27-v2
+    paths:
+      - ".github/workflows/xcode-project-probe.yml"
+      - "Application/Dopamine.xcodeproj/**"
+      - "Application/Makefile"
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: macos-26-intel
+    steps:
+      - name: Xcode 26 / iOS 26 Setup
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26.0.1'
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Inspect Dopamine project as Xcode sees it
+        working-directory: Application
+        run: |
+          set -euxo pipefail
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+          echo '=== project list ==='
+          xcodebuild -project Dopamine.xcodeproj -list -json | tee /tmp/dopamine-project-list.json
+          echo '=== project structure check ==='
+          grep -n 'PBXNativeTarget\|name = Dopamine;\|productName = Dopamine;' Dopamine.xcodeproj/project.pbxproj | head -80 || true
+          echo '=== named target build settings ==='
+          set +e
+          xcodebuild -project Dopamine.xcodeproj -target Dopamine -configuration Debug -sdk iphoneos -showBuildSettings 2>&1 | tee /tmp/dopamine-target-build-settings.txt
+          target_status=${PIPESTATUS[0]}
+          set -e
+          echo "named target status=${target_status}"
+          echo '=== scheme build settings ==='
+          set +e
+          xcodebuild -project Dopamine.xcodeproj -scheme Dopamine -configuration Debug -sdk iphoneos -showBuildSettings 2>&1 | tee /tmp/dopamine-scheme-build-settings.txt
+          scheme_status=${PIPESTATUS[0]}
+          set -e
+          echo "scheme status=${scheme_status}"
+          exit 0
