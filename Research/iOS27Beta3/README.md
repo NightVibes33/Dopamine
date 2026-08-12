@@ -123,6 +123,21 @@ The practical chain under research is therefore:
 
 `userland foothold -> kernel primitive -> stable kernel R/W or kernel execution -> SPTM/TXM-compatible post-exploitation -> trust/code-signing/bootstrap integration -> rootless jailbreak environment`
 
+### Exact beta-3 A18 SPTM structural result
+
+The existing `ios27-a18-sptm-txm-research.yml` workflow completed successfully for beta 3, beta 4, and beta 5. It is an offline structure/anchor scan only and does not claim a runtime bypass.
+
+For beta 3 `24A5380h`:
+
+- SPTM reference anchors: `11/15`
+- TXM reference anchors: `8/9`
+- primary A18 CTRR lock routine: file offset `0xb7afc`, confidence `high`
+- secondary A18 CTRR lock routine: file offset `0xb7c60`, confidence `high`
+- lock-register apply routine: file offset `0xbba64`, confidence `high`
+- `sptm_determine_kernel_ctrr`: file offset `0xae540`, confidence `high`
+
+The primary/secondary pair is structurally stable across beta 3 through beta 5, although the exact offsets move. This confirms that a kernel bug alone is not the complete A18 jailbreak path: the SPTM/TXM protection model remains a separate post-kernel engineering requirement.
+
 ## Automated firmware validation
 
 Workflow:
