@@ -28,8 +28,8 @@ jobs:
       FILZA_UPSTREAM_NAME: FilzaSlop-v1.0.0-unsigned.ipa
       FILZA_UPSTREAM_SHA256: 0f7df472d18e4dd8eef521255562a1ff4a44c8e9e4035e29c9a72c2e9a2dbbd3
       FILZA_FORK_REPO: NightVibes33/FilzaSlop
-      FILZA_FORK_COMMIT: 12676c48c2f88cb615dce2c6fccd7f0f5e94559f
-      FILZA_FORK_IPA: FilzaSlop-fork-12676c4.ipa
+      FILZA_FORK_COMMIT: aa6c67f3f0f505fa9e1aca45be02bc9b7175e958
+      FILZA_FORK_IPA: FilzaSlop-full-ByeTunes-aa6c67f.ipa
 
     steps:
       - name: Xcode 26.2 / iOS 26.2 Setup
@@ -133,7 +133,7 @@ jobs:
           FILZA_ARCHS="$(lipo -archs "$FILZA_BIN")"
           echo "$FILZA_ARCHS" | tr ' ' '\n' | grep -Eq '^arm64(e)?$'
 
-      - name: Build forked FilzaSlop dylib and replace upstream payload
+      - name: Build complete ByeTunes + Filza dylib and replace upstream payload
         run: |
           set -euxo pipefail
           export BASEDIR="$(pwd)"
@@ -145,13 +145,15 @@ jobs:
           cd /tmp/filzaslop-src
           git checkout --detach "$FILZA_FORK_COMMIT"
           test "$(git rev-parse HEAD)" = "$FILZA_FORK_COMMIT"
+          git submodule update --init --recursive
+          test "$(git -C ByeTunes rev-parse HEAD)" = "1a90f9e0f2b1a1787b208809ad2373f5c52175c8"
 
           bash scripts/build-idevice.sh "$PWD/Vendor/idevice"
           test "$(cat Vendor/idevice/COMMIT)" = "37ee77cf713f483551f3cf33ea8b2087a40058ca"
           test -s Vendor/idevice/lib/libidevice_ffi.a
 
           gmake clean || true
-          gmake -j"$(sysctl -n hw.logicalcpu)" all FINALPACKAGE=1 TARGET=iphone:clang:latest:15.0
+          gmake -j"$(sysctl -n hw.logicalcpu)" all FINALPACKAGE=1 TARGET=iphone:clang:latest:16.0
 
           BUILT_DYLIB=".theos/obj/FilzaApplySandboxExt.dylib"
           test -f "$BUILT_DYLIB"
@@ -159,12 +161,18 @@ jobs:
           BUILT_ARCHS="$(lipo -archs "$BUILT_DYLIB")"
           echo "Fork dylib architectures: $BUILT_ARCHS"
           test "$BUILT_ARCHS" = "arm64"
+          grep -aFq 'ByeTunesEmbeddedHostFactory' "$BUILT_DYLIB"
+          grep -aFq '[ByeTunesFull]' "$BUILT_DYLIB"
+          grep -aFq 'DownloadView' "$BUILT_DYLIB"
+          grep -aFq 'RingtonesView' "$BUILT_DYLIB"
+          grep -aFq 'SettingsView' "$BUILT_DYLIB"
 
-          # Search the Mach-O directly. Piping Apple's `strings` into grep -q
-          # causes strings to report a broken/closed output pipe after grep exits.
-          grep -aFq '[ByeTunesUI]' "$BUILT_DYLIB"
-          grep -aFq '/iTunes_Control/iTunes/MediaLibrary.sqlitedb' "$BUILT_DYLIB"
-          grep -aFq 'Music Library' "$BUILT_DYLIB"
+          bash scripts/stage-byetunes-resources.sh .theos/byetunes-resources
+          test -s .theos/byetunes-resources/meriyah.umd.js
+          test -s .theos/byetunes-resources/astring.umd.js
+          test -s .theos/byetunes-resources/yt_ejs_helper.js
+          test -s .theos/byetunes-resources/AppIconImage.png
+          plutil -lint .theos/byetunes-resources/ByeTunes-Info.plist
 
           BUILT_HASH="$(shasum -a 256 "$BUILT_DYLIB" | awk '{print $1}')"
           echo "Fork dylib SHA-256: $BUILT_HASH"
@@ -187,18 +195,52 @@ jobs:
           PATCHED_HASH="$(shasum -a 256 "$FILZA_DYLIB" | awk '{print $1}')"
           test "$PATCHED_HASH" = "$BUILT_HASH"
 
+          cp -f .theos/byetunes-resources/meriyah.umd.js "$FILZA_APP/meriyah.umd.js"
+          cp -f .theos/byetunes-resources/astring.umd.js "$FILZA_APP/astring.umd.js"
+          cp -f .theos/byetunes-resources/yt_ejs_helper.js "$FILZA_APP/yt_ejs_helper.js"
+          cp -f .theos/byetunes-resources/AppIconImage.png "$FILZA_APP/AppIconImage.png"
+
+          python3 - "$FILZA_APP/Info.plist" .theos/byetunes-resources/ByeTunes-Info.plist <<'PY'
+          import plistlib, sys
+          filza_path, byetunes_path = sys.argv[1], sys.argv[2]
+          with open(filza_path, 'rb') as f:
+              filza = plistlib.load(f)
+          with open(byetunes_path, 'rb') as f:
+              byetunes = plistlib.load(f)
+          for key in ('CFBundleDocumentTypes', 'UIFileSharingEnabled'):
+              if key in byetunes:
+                  filza[key] = byetunes[key]
+          with open(filza_path, 'wb') as f:
+              plistlib.dump(filza, f, fmt=plistlib.FMT_BINARY)
+          PY
+          plutil -lint "$FILZA_APP/Info.plist"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$FILZA_APP/Info.plist")" = "com.apple.mobile.MobileHouseArrest"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :UIFileSharingEnabled' "$FILZA_APP/Info.plist")" = "true"
+
           cd /tmp/filzaslop-patched
           zip -qry "$GITHUB_WORKSPACE/$FILZA_FORK_IPA" Payload
 
           mkdir -p /tmp/filzaslop-final-check
           unzip -q "$GITHUB_WORKSPACE/$FILZA_FORK_IPA" -d /tmp/filzaslop-final-check
-          FINAL_DYLIBS="$(find /tmp/filzaslop-final-check/Payload -type f -name 'FilzaApplySandboxExt.dylib' -print)"
+          FINAL_APP="$(find /tmp/filzaslop-final-check/Payload -maxdepth 1 -type d -name '*.app' | head -1)"
+          test -n "$FINAL_APP"
+          FINAL_DYLIBS="$(find "$FINAL_APP" -type f -name 'FilzaApplySandboxExt.dylib' -print)"
           FINAL_COUNT="$(printf '%s\n' "$FINAL_DYLIBS" | sed '/^$/d' | wc -l | tr -d ' ')"
           test "$FINAL_COUNT" = "1"
           FINAL_HASH="$(shasum -a 256 "$FINAL_DYLIBS" | awk '{print $1}')"
           test "$FINAL_HASH" = "$BUILT_HASH"
-          grep -aFq '[ByeTunesUI]' "$FINAL_DYLIBS"
-          echo "Verified packaged fork dylib SHA-256: $FINAL_HASH"
+          grep -aFq '[ByeTunesFull]' "$FINAL_DYLIBS"
+          grep -aFq 'DownloadView' "$FINAL_DYLIBS"
+          grep -aFq 'RingtonesView' "$FINAL_DYLIBS"
+          grep -aFq 'SettingsView' "$FINAL_DYLIBS"
+          test -s "$FINAL_APP/meriyah.umd.js"
+          test -s "$FINAL_APP/astring.umd.js"
+          test -s "$FINAL_APP/yt_ejs_helper.js"
+          test -s "$FINAL_APP/AppIconImage.png"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$FINAL_APP/Info.plist")" = "com.apple.mobile.MobileHouseArrest"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :UIFileSharingEnabled' "$FINAL_APP/Info.plist")" = "true"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleDocumentTypes' "$FINAL_APP/Info.plist"
+          echo "Verified complete ByeTunes resources and dylib SHA-256: $FINAL_HASH"
           shasum -a 256 "$GITHUB_WORKSPACE/$FILZA_FORK_IPA"
 
       - name: Build real-device IPA
@@ -286,8 +328,13 @@ jobs:
           - upstream base SHA-256: ${FILZA_UPSTREAM_SHA256}
           - replacement dylib source: https://github.com/${FILZA_FORK_REPO}
           - replacement dylib source commit: ${FILZA_FORK_COMMIT}
-          - ByeTunes-compatible Music Library: AFC + RPPairing + MediaLibrary.sqlitedb
-          - idevice source pin: jkcoxson/idevice@37ee77cf713f483551f3cf33ea8b2087a40058ca
+          - complete ByeTunes app root embedded via original ContentView
+          - complete ByeTunes source pin: NightVibes33/ByeTunes@1a90f9e0f2b1a1787b208809ad2373f5c52175c8
+          - 47 original ByeTunes Swift files compiled; only standalone @main shell omitted
+          - original downloader, music, ringtones, settings, metadata, lyrics, logs, onboarding, intents and YouTubeKit included
+          - original YouTubeKit JavaScript resources and app icon resource bundled in Filza.app
+          - original audio document-import types and file-sharing declaration merged into Filza Info.plist
+          - full idevice FFI source pin: jkcoxson/idevice@37ee77cf713f483551f3cf33ea8b2087a40058ca
           - final rebuilt IPA SHA-256: ${FILZA_FINAL_SHA}
           - required bundle identifier: com.apple.mobile.MobileHouseArrest
           - preserve that identifier when signing
