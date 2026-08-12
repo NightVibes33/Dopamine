@@ -11,7 +11,7 @@ OUTPUT_NAME = idownloadd
 build:
 	@python3 patch_swiftutils_dependency.py
 	@rm -rf "$(DERIVED_DATA)"
-	xcodebuild -project $(XCODE_PROJECT) -scheme $(XCODE_SCHEME) -configuration $(CONFIGURATION) -derivedDataPath "$(DERIVED_DATA)" $(PLATFORM_FLAGS) $(CS_FLAGS) build
+	xcodebuild -project $(XCODE_PROJECT) -scheme $(XCODE_SCHEME) -configuration $(CONFIGURATION) -derivedDataPath "$(DERIVED_DATA)" -jobs 1 $(PLATFORM_FLAGS) $(CS_FLAGS) build
 	@cp -f "$(BUILD_OUTPUT)/$(OUTPUT_NAME)" .
 	@rm -rf "$(DERIVED_DATA)"
 	@ldid -Cadhoc -Sentitlements.plist $(OUTPUT_NAME)
