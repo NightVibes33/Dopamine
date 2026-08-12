@@ -9,6 +9,7 @@ BUILD_OUTPUT = $(DERIVED_DATA)/Build/Products/Release-iphoneos
 OUTPUT_NAME = idownloadd
 
 build:
+	@python3 patch_swiftutils_dependency.py
 	@rm -rf "$(DERIVED_DATA)"
 	xcodebuild -project $(XCODE_PROJECT) -scheme $(XCODE_SCHEME) -configuration $(CONFIGURATION) -derivedDataPath "$(DERIVED_DATA)" $(PLATFORM_FLAGS) $(CS_FLAGS) build
 	@cp -f "$(BUILD_OUTPUT)/$(OUTPUT_NAME)" .
