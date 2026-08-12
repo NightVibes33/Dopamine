@@ -179,10 +179,10 @@ jobs:
           test "$DYLIB_COUNT" = "1"
           FILZA_DYLIB="$DYLIB_PATHS"
 
-          # Preserve the upstream Mach-O injection/load-command layout exactly.
+          # Preserve the upstream Mach-O injection/load-command layout exactly and
+          # preserve the Theos-signed dylib bytes exactly during the replacement.
           otool -L "$FILZA_BIN" | grep -Fq 'FilzaApplySandboxExt.dylib'
           cp -f "$BUILT_DYLIB" "$FILZA_DYLIB"
-          ldid -S "$FILZA_DYLIB"
           PATCHED_HASH="$(shasum -a 256 "$FILZA_DYLIB" | awk '{print $1}')"
           test "$PATCHED_HASH" = "$BUILT_HASH"
 
