@@ -1,19 +1,20 @@
 XCODE_PROJECT = src/idownloadd.xcodeproj
-XCODE_SCHEME = idownloadd
+XCODE_TARGET = idownloadd
 CS_FLAGS = CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO
-PLATFORM_FLAGS = -sdk iphoneos SDKROOT=iphoneos SUPPORTED_PLATFORMS=iphoneos SUPPORTS_MACCATALYST=NO
+PLATFORM_FLAGS = -sdk iphoneos SDKROOT=iphoneos SUPPORTED_PLATFORMS=iphoneos SUPPORTS_MACCATALYST=NO ARCHS=arm64 ONLY_ACTIVE_ARCH=NO
 CONFIGURATION = Release
+BUILD_ROOT = $(CURDIR)/.xcodebuild
 
 OUTPUT_NAME = idownloadd
 
 build:
-	xcodebuild -archivePath ./.build -project $(XCODE_PROJECT) -scheme $(XCODE_SCHEME) -configuration $(CONFIGURATION) -destination generic/platform=iOS archive $(PLATFORM_FLAGS) $(CS_FLAGS)
-	@cp -f ./.build.xcarchive/Products/usr/local/bin/$(OUTPUT_NAME) .
-	@rm -rf ./.build.xcarchive
+	xcodebuild -project $(XCODE_PROJECT) -target $(XCODE_TARGET) -configuration $(CONFIGURATION) $(PLATFORM_FLAGS) $(CS_FLAGS) CONFIGURATION_BUILD_DIR="$(BUILD_ROOT)/Release-iphoneos" build
+	@cp -f "$(BUILD_ROOT)/Release-iphoneos/$(OUTPUT_NAME)" .
+	@rm -rf "$(BUILD_ROOT)"
 	@ldid -Cadhoc -Sentitlements.plist $(OUTPUT_NAME)
 
 clean:
-	xcodebuild -project $(XCODE_PROJECT) -scheme $(XCODE_SCHEME) -configuration $(CONFIGURATION) -destination generic/platform=iOS clean $(PLATFORM_FLAGS)
-	@rm -rf $(OUTPUT_NAME)
+	xcodebuild -project $(XCODE_PROJECT) -target $(XCODE_TARGET) -configuration $(CONFIGURATION) $(PLATFORM_FLAGS) clean
+	@rm -rf "$(BUILD_ROOT)" $(OUTPUT_NAME)
 
 default: build
