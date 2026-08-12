@@ -14,12 +14,6 @@ on:
     paths-ignore:
       - ".gitignore"
   workflow_dispatch:
-  schedule:
-    - cron: '0 0 1 1 *'
-    - cron: '0 0 1 4 *'
-    - cron: '0 0 30 6 *'
-    - cron: '0 0 28 9 *'
-    - cron: '0 0 27 12 *'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -80,10 +74,8 @@ jobs:
           set -euxo pipefail
           git clone https://github.com/CRKatri/trustcache
           cd trustcache
-          # trustcache is a host-side build utility. On macos-26-intel it must
-          # be built for the x86_64 runner; the actual iPhoneOS target remains arm64.
-          export CFLAGS="$CFLAGS -I$(brew --prefix openssl)/include"
-          export LDFLAGS="$LDFLAGS -L$(brew --prefix openssl)/lib"
+          export CFLAGS="${CFLAGS:-} -I$(brew --prefix openssl)/include"
+          export LDFLAGS="${LDFLAGS:-} -L$(brew --prefix openssl)/lib"
           gmake -j$(sysctl -n hw.logicalcpu) OPENSSL=1
           file trustcache
           test "$(uname -m)" = "x86_64"
@@ -155,7 +147,6 @@ jobs:
             "https://github.com/0xjohnnydev/FilzaSlop/releases/download/v1.0.0/${FILZA_NAME}" \
             -o "${FILZA_NAME}"
           echo "${FILZA_SHA256}  ${FILZA_NAME}" | shasum -a 256 -c -
-
           rm -rf /tmp/filzaslop-ipa-check
           mkdir -p /tmp/filzaslop-ipa-check
           unzip -q "${FILZA_NAME}" -d /tmp/filzaslop-ipa-check
@@ -164,7 +155,6 @@ jobs:
           FILZA_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$FILZA_APP/Info.plist")"
           echo "FilzaSlop bundle identifier: $FILZA_ID"
           test "$FILZA_ID" = "com.apple.mobile.MobileHouseArrest"
-
           FILZA_EXECUTABLE="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$FILZA_APP/Info.plist")"
           FILZA_BIN="$FILZA_APP/$FILZA_EXECUTABLE"
           test -f "$FILZA_BIN"
@@ -184,21 +174,17 @@ jobs:
           Dopamine iPhone 16 / iOS 27 research kit
 
           Dopamine:
-          - built by this workflow as a real-device arm64 iPhoneOS IPA
+          - real-device arm64 iPhoneOS IPA
           - Apple code signing disabled; ldid/ad-hoc packaged by the project
 
           FilzaSlop companion:
           - upstream release: v1.0.0
           - SHA-256: 0f7df472d18e4dd8eef521255562a1ff4a44c8e9e4035e29c9a72c2e9a2dbbd3
           - required bundle identifier: com.apple.mobile.MobileHouseArrest
-          - preserve that identifier when signing or the MobileHouseArrest MCM path will not work
-
-          The companion adds a filesystem UI for container access granted by its supported MCM/sandbox bugs.
-          It does not provide Dopamine with kernel/PAC/PPL primitives by itself.
+          - preserve that identifier when signing
           EOF
 
       - name: Upload Dopamine IPA
-        id: dopamine-latest-upload
         uses: actions/upload-artifact@v4
         with:
           name: Dopamine-iOS26-macOS26-Intel-unsigned-device
