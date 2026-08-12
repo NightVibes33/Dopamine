@@ -8,11 +8,15 @@ on:
       - '*'
     paths-ignore:
       - ".gitignore"
+      - "Research/iOS27Beta3/**"
+      - ".github/workflows/ios27-beta3-firmware-validation.yml"
   pull_request:
     branches:
       - '*'
     paths-ignore:
       - ".gitignore"
+      - "Research/iOS27Beta3/**"
+      - ".github/workflows/ios27-beta3-firmware-validation.yml"
   workflow_dispatch:
 
 concurrency:
