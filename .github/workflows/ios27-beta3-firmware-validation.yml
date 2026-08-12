@@ -1,0 +1,200 @@
+name: iOS 27 beta 3 firmware validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - iphone16-ios27-v2
+    paths:
+      - '.github/workflows/ios27-beta3-firmware-validation.yml'
+      - 'Research/iOS27Beta3/**'
+
+jobs:
+  kernel-diff:
+    runs-on: macos-26-intel
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install ipsw research tooling
+        run: |
+          set -euxo pipefail
+          brew install blacktop/tap/ipsw jq
+          ipsw version || ipsw --version
+
+      - name: Download beta 3 and beta 5 kernelcaches
+        run: |
+          set -euxo pipefail
+          mkdir -p firmware/beta3 firmware/beta5 report extracted/beta3 extracted/beta5
+
+          # Target device/build captured for this research branch.
+          ipsw download appledb \
+            --os iOS \
+            --device iPhone17,3 \
+            --build 24A5380h \
+            --kernel \
+            --confirm \
+            --output firmware/beta3
+
+          # Beta 5 is a comparison build, not an assumption that every candidate
+          # vulnerability was fixed specifically in this build.
+          ipsw download appledb \
+            --os iOS \
+            --device iPhone17,3 \
+            --build 24A5408d \
+            --kernel \
+            --confirm \
+            --output firmware/beta5
+
+      - name: Resolve kernelcache paths and hash inputs
+        run: |
+          set -euxo pipefail
+          B3="$(find firmware/beta3 -type f -iname '*kernelcache*' -print | head -n 1)"
+          B5="$(find firmware/beta5 -type f -iname '*kernelcache*' -print | head -n 1)"
+
+          if [[ -z "$B3" || -z "$B5" ]]; then
+            echo 'Expected kernelcache files were not produced by AppleDB remote extraction.' >&2
+            find firmware -type f -maxdepth 5 -print || true
+            exit 1
+          fi
+
+          printf 'BETA3_KERNEL=%s\n' "$B3" >> "$GITHUB_ENV"
+          printf 'BETA5_KERNEL=%s\n' "$B5" >> "$GITHUB_ENV"
+
+          {
+            echo '# iPhone17,3 iOS 27 kernelcache validation'
+            echo
+            echo '- Target build: `24A5380h` (beta 3)'
+            echo '- Comparator: `24A5408d` (beta 5)'
+            echo
+            echo '## Kernelcache SHA-256'
+            echo '```'
+            shasum -a 256 "$B3" "$B5"
+            echo '```'
+          } > report/README.md
+
+      - name: Inventory and diff kernel extensions
+        run: |
+          set -euxo pipefail
+          ipsw kernel kexts "$BETA3_KERNEL" > report/beta3-kexts.txt
+          ipsw kernel kexts "$BETA5_KERNEL" > report/beta5-kexts.txt
+          ipsw kernel kexts "$BETA3_KERNEL" "$BETA5_KERNEL" --diff > report/kext-inventory.diff || true
+
+          grep -Ei 'AppleAVE|AVEVideo|IOSurface|IOKit|AGX|GPU|VideoEncoder' report/beta3-kexts.txt > report/beta3-target-kexts.txt || true
+          grep -Ei 'AppleAVE|AVEVideo|IOSurface|IOKit|AGX|GPU|VideoEncoder' report/beta5-kexts.txt > report/beta5-target-kexts.txt || true
+
+      - name: Extract kernel extensions for binary-level comparison
+        run: |
+          set -euxo pipefail
+          ipsw kernel extract "$BETA3_KERNEL" --all --force --output extracted/beta3
+          ipsw kernel extract "$BETA5_KERNEL" --all --force --output extracted/beta5
+
+      - name: Build hash-level change report
+        run: |
+          set -euxo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          import json
+          import re
+
+          roots = {
+              'beta3': Path('extracted/beta3'),
+              'beta5': Path('extracted/beta5'),
+          }
+
+          def sha256(path: Path) -> str:
+              h = hashlib.sha256()
+              with path.open('rb') as f:
+                  for chunk in iter(lambda: f.read(1024 * 1024), b''):
+                      h.update(chunk)
+              return h.hexdigest()
+
+          def inv(root: Path):
+              out = {}
+              for p in sorted(root.rglob('*')):
+                  if p.is_file():
+                      out[str(p.relative_to(root))] = {
+                          'sha256': sha256(p),
+                          'size': p.stat().st_size,
+                      }
+              return out
+
+          b3 = inv(roots['beta3'])
+          b5 = inv(roots['beta5'])
+          names = sorted(set(b3) | set(b5))
+          added = [n for n in names if n not in b3]
+          removed = [n for n in names if n not in b5]
+          changed = [n for n in names if n in b3 and n in b5 and b3[n]['sha256'] != b5[n]['sha256']]
+          unchanged = [n for n in names if n in b3 and n in b5 and b3[n]['sha256'] == b5[n]['sha256']]
+
+          target_re = re.compile(r'(AppleAVE|AVEVideo|IOSurface|IOKit|AGX|GPU|VideoEncoder)', re.I)
+          interesting = [n for n in changed if target_re.search(n)]
+
+          result = {
+              'device': 'iPhone17,3',
+              'target_build': '24A5380h',
+              'comparator_build': '24A5408d',
+              'added': added,
+              'removed': removed,
+              'changed': changed,
+              'unchanged_count': len(unchanged),
+              'interesting_changed': interesting,
+              'beta3': b3,
+              'beta5': b5,
+          }
+          Path('report/kext-hash-diff.json').write_text(json.dumps(result, indent=2))
+
+          lines = [
+              '',
+              '## Extracted KEXT hash comparison',
+              '',
+              f'- Changed: **{len(changed)}**',
+              f'- Added in comparator: **{len(added)}**',
+              f'- Removed in comparator: **{len(removed)}**',
+              f'- Unchanged: **{len(unchanged)}**',
+              '',
+              '### Priority subsystem changes',
+          ]
+          if interesting:
+              lines += [f'- `{name}`' for name in interesting]
+          else:
+              lines.append('- No changed KEXT names matched the AVE/IOSurface/IOKit/AGX priority filter.')
+
+          lines += ['', '### Interpretation', '']
+          lines.append('A changed hash only proves that a component changed between builds; it does not by itself prove that a specific CVE is present or fixed. Function-level review is required before making that claim.')
+          with Path('report/README.md').open('a') as f:
+              f.write('\n'.join(lines) + '\n')
+          PY
+
+      - name: Collect priority Mach-O metadata
+        run: |
+          set -euxo pipefail
+          : > report/priority-macho-metadata.txt
+
+          for root in extracted/beta3 extracted/beta5; do
+            find "$root" -type f -print | grep -Ei 'AppleAVE|AVEVideo|IOSurface|IOKit|AGX|GPU|VideoEncoder' | while IFS= read -r file; do
+              {
+                echo "===== $file ====="
+                shasum -a 256 "$file"
+                file "$file"
+                otool -l "$file" 2>/dev/null | grep -E 'LC_UUID|uuid |LC_BUILD_VERSION|platform |minos |sdk ' || true
+                echo
+              } >> report/priority-macho-metadata.txt
+            done || true
+          done
+
+      - name: Save AppleDB firmware records
+        run: |
+          set -euxo pipefail
+          ipsw download appledb --os iOS --device iPhone17,3 --build 24A5380h --urls --json > report/appledb-beta3.json
+          ipsw download appledb --os iOS --device iPhone17,3 --build 24A5408d --urls --json > report/appledb-beta5.json
+
+      - name: Upload firmware validation report
+        uses: actions/upload-artifact@v4
+        with:
+          name: iPhone17-3-iOS27-beta3-vs-beta5-kernel-validation
+          path: report/
+          retention-days: 14
