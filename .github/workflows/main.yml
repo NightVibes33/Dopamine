@@ -28,8 +28,8 @@ jobs:
       FILZA_UPSTREAM_NAME: FilzaSlop-v1.0.1-unsigned.ipa
       FILZA_UPSTREAM_SHA256: 36a13f2b6d77a86cc32d7744555a176a2092e933d3746e999110f1717d36a6ba
       FILZA_FORK_REPO: NightVibes33/FilzaSlop
-      FILZA_FORK_COMMIT: 4740b2c46dbca1fdd2f2a317c5342a586cc4c2b4
-      FILZA_FORK_IPA: FilzaSlop-full-ByeTunes-badquery-iOS27-4740b2c.ipa
+      FILZA_FORK_COMMIT: e003412e404aa48e39011317f60cade8bb2b3620
+      FILZA_FORK_IPA: FilzaSlop-full-ByeTunes-badquery-iOS27-e003412.ipa
       BAD_QUERY_COMMIT: 73ef6da1adabef0982fd00e36cb85f21b8f8194a
       IDEVICE_COMMIT: 37ee77cf713f483551f3cf33ea8b2087a40058ca
 
