@@ -25,11 +25,11 @@ jobs:
   build:
     runs-on: macos-26-intel
     env:
-      FILZA_UPSTREAM_NAME: FilzaSlop-v1.0.0-unsigned.ipa
-      FILZA_UPSTREAM_SHA256: 0f7df472d18e4dd8eef521255562a1ff4a44c8e9e4035e29c9a72c2e9a2dbbd3
+      FILZA_UPSTREAM_NAME: FilzaSlop-v1.0.1-unsigned.ipa
+      FILZA_UPSTREAM_SHA256: 36a13f2b6d77a86cc32d7744555a176a2092e933d3746e999110f1717d36a6ba
       FILZA_FORK_REPO: NightVibes33/FilzaSlop
-      FILZA_FORK_COMMIT: 462900fd5f15e5fba6558eb80677d9acafb42961
-      FILZA_FORK_IPA: FilzaSlop-full-ByeTunes-462900f.ipa
+      FILZA_FORK_COMMIT: 641574584c4b30c49842b86ec2e3ccad9960618c
+      FILZA_FORK_IPA: FilzaSlop-full-ByeTunes-iOS27-6415745.ipa
 
     steps:
       - name: Xcode 26.2 / iOS 26.2 Setup
@@ -115,7 +115,7 @@ jobs:
         run: |
           set -euxo pipefail
           curl -fL --retry 3 \
-            "https://github.com/0xjohnnydev/FilzaSlop/releases/download/v1.0.0/${FILZA_UPSTREAM_NAME}" \
+            "https://github.com/0xjohnnydev/FilzaSlop/releases/download/v1.0.1/${FILZA_UPSTREAM_NAME}" \
             -o "${FILZA_UPSTREAM_NAME}"
           echo "${FILZA_UPSTREAM_SHA256}  ${FILZA_UPSTREAM_NAME}" | shasum -a 256 -c -
 
@@ -167,6 +167,10 @@ jobs:
           grep -aFq 'DownloadView' "$BUILT_DYLIB"
           grep -aFq 'RingtonesView' "$BUILT_DYLIB"
           grep -aFq 'SettingsView' "$BUILT_DYLIB"
+          grep -aFq 'com.apple.lsd' "$BUILT_DYLIB"
+          grep -aFq 'LaunchServices fallback' "$BUILT_DYLIB"
+          grep -aFq 'LaunchServices app discovery' "$BUILT_DYLIB"
+          grep -aFq 'FILZA_MCM_DISABLE_LS_DISCOVERY' "$BUILT_DYLIB"
 
           bash scripts/stage-byetunes-resources.sh .theos/byetunes-resources
           test -s .theos/byetunes-resources/meriyah.umd.js
@@ -235,6 +239,10 @@ jobs:
           grep -aFq 'DownloadView' "$FINAL_DYLIBS"
           grep -aFq 'RingtonesView' "$FINAL_DYLIBS"
           grep -aFq 'SettingsView' "$FINAL_DYLIBS"
+          grep -aFq 'com.apple.lsd' "$FINAL_DYLIBS"
+          grep -aFq 'LaunchServices fallback' "$FINAL_DYLIBS"
+          grep -aFq 'LaunchServices app discovery' "$FINAL_DYLIBS"
+          grep -aFq 'FILZA_MCM_DISABLE_LS_DISCOVERY' "$FINAL_DYLIBS"
           test -s "$FINAL_APP/meriyah.umd.js"
           test -s "$FINAL_APP/astring.umd.js"
           test -s "$FINAL_APP/yt_ejs_helper.js"
@@ -242,7 +250,7 @@ jobs:
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$FINAL_APP/Info.plist")" = "com.apple.mobile.MobileHouseArrest"
           test "$(/usr/libexec/PlistBuddy -c 'Print :UIFileSharingEnabled' "$FINAL_APP/Info.plist")" = "true"
           /usr/libexec/PlistBuddy -c 'Print :CFBundleDocumentTypes' "$FINAL_APP/Info.plist"
-          echo "Verified in-place ByeTunes resources and dylib SHA-256: $FINAL_HASH"
+          echo "Verified in-place ByeTunes resources, iOS 26/27 discovery, and dylib SHA-256: $FINAL_HASH"
           shasum -a 256 "$GITHUB_WORKSPACE/$FILZA_FORK_IPA"
 
       - name: Build real-device IPA
@@ -326,10 +334,12 @@ jobs:
           - SHA-256: ${DOPAMINE_SHA}
 
           FilzaSlop companion:
-          - upstream base release: v1.0.0
+          - upstream base release: v1.0.1
           - upstream base SHA-256: ${FILZA_UPSTREAM_SHA256}
           - replacement dylib source: https://github.com/${FILZA_FORK_REPO}
           - replacement dylib source commit: ${FILZA_FORK_COMMIT}
+          - iOS 26 third-party app discovery updated from upstream 583fc091 / v1.0.1
+          - iOS 27-tolerant LaunchServices csstore scan accepts versioned LaunchServices*.csstore files and verifies candidates with class-2 ContainerManager lookups
           - complete ByeTunes ContentView embedded in-place inside Filza TGMusicLibraryViewController
           - no separate ByeTunes modal launcher or reduced custom music table in the compiled target
           - complete ByeTunes source pin: NightVibes33/ByeTunes@1a90f9e0f2b1a1787b208809ad2373f5c52175c8
