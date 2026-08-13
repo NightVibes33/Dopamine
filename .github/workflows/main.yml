@@ -31,6 +31,7 @@ jobs:
       FILZA_FORK_COMMIT: c74e9ef00c110238c6e7da17bc8a0efe94df1dfd
       FILZA_FORK_IPA: FilzaSlop-full-ByeTunes-badquery-iOS27-c74e9ef.ipa
       BAD_QUERY_COMMIT: 73ef6da1adabef0982fd00e36cb85f21b8f8194a
+      IDEVICE_COMMIT: 37ee77cf713f483551f3cf33ea8b2087a40058ca
 
     steps:
       - name: Xcode 26.2 / iOS 26.2 Setup
@@ -56,6 +57,43 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Restore THEOS cache
+        id: dopamine-theos-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/theos
+          key: dopamine-theos-${{ runner.os }}-${{ runner.arch }}-xcode26.2-sdk16.5-v1
+
+      - name: Restore Procursus bootstrap cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            Application/Dopamine/Resources/bootstrap_1800.tar.zst
+            Application/Dopamine/Resources/bootstrap_1900.tar.zst
+          key: dopamine-bootstraps-${{ runner.os }}-${{ hashFiles('Application/Dopamine/Resources/download_bootstraps.sh') }}
+
+      - name: Restore verified upstream FilzaSlop cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.FILZA_UPSTREAM_NAME }}
+          key: filzaslop-upstream-v1.0.1-${{ env.FILZA_UPSTREAM_SHA256 }}
+
+      - name: Restore Cargo download cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: dopamine-filza-cargo-${{ runner.os }}-${{ runner.arch }}-${{ env.IDEVICE_COMMIT }}-v1
+          restore-keys: |
+            dopamine-filza-cargo-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Restore embedded idevice FFI cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.cache/filza-idevice
+          key: dopamine-filza-idevice-${{ runner.os }}-${{ runner.arch }}-xcode26.2-ios26.2-${{ env.IDEVICE_COMMIT }}-embedded-logger-v1
+
       - name: Install Procursus
         uses: dhinakg/procursus-action@main
         with:
@@ -67,6 +105,7 @@ jobs:
           echo "PATH=$(brew --prefix make)/libexec/gnubin:$PATH" >> "$GITHUB_ENV"
 
       - name: Install THEOS
+        if: steps.dopamine-theos-cache.outputs.cache-hit != 'true'
         run: |
           set -x
           export BASEDIR="$(pwd)"
@@ -80,6 +119,12 @@ jobs:
           tar -xf "$THEOS/sdks/iPhoneOS16.5.sdk.tar" -C "$THEOS/sdks"
           rm "$THEOS/sdks/iPhoneOS16.5.sdk.tar"
           cd "$BASEDIR"
+
+      - name: Verify THEOS cache/install
+        run: |
+          set -euxo pipefail
+          test -f "$GITHUB_WORKSPACE/theos/makefiles/common.mk"
+          test -d "$GITHUB_WORKSPACE/theos/sdks/iPhoneOS16.5.sdk"
 
       - name: Build and Install trustcache
         run: |
@@ -108,16 +153,22 @@ jobs:
 
       - name: Download Bootstraps
         run: |
-          set -x
+          set -euxo pipefail
           cd Application/Dopamine/Resources
-          ./download_bootstraps.sh
+          if [ ! -s bootstrap_1800.tar.zst ] || [ ! -s bootstrap_1900.tar.zst ]; then
+            ./download_bootstraps.sh
+          fi
+          test -s bootstrap_1800.tar.zst
+          test -s bootstrap_1900.tar.zst
 
       - name: Fetch verified upstream FilzaSlop base
         run: |
           set -euxo pipefail
-          curl -fL --retry 3 \
-            "https://github.com/0xjohnnydev/FilzaSlop/releases/download/v1.0.1/${FILZA_UPSTREAM_NAME}" \
-            -o "${FILZA_UPSTREAM_NAME}"
+          if [ ! -s "${FILZA_UPSTREAM_NAME}" ]; then
+            curl -fL --retry 3 \
+              "https://github.com/0xjohnnydev/FilzaSlop/releases/download/v1.0.1/${FILZA_UPSTREAM_NAME}" \
+              -o "${FILZA_UPSTREAM_NAME}"
+          fi
           echo "${FILZA_UPSTREAM_SHA256}  ${FILZA_UPSTREAM_NAME}" | shasum -a 256 -c -
 
           rm -rf /tmp/filzaslop-upstream-check
@@ -152,9 +203,23 @@ jobs:
           test -f ThirdParty/bad_query/bad_query/bad_query.c
           test -f ThirdParty/bad_query/bad_query/bad_query.h
 
-          bash scripts/build-idevice.sh "$PWD/Vendor/idevice"
-          test "$(cat Vendor/idevice/COMMIT)" = "37ee77cf713f483551f3cf33ea8b2087a40058ca"
+          IDEVICE_CACHE="$GITHUB_WORKSPACE/.cache/filza-idevice"
+          if test -s "$IDEVICE_CACHE/lib/libidevice_ffi.a" && \
+             test -s "$IDEVICE_CACHE/include/idevice.h" && \
+             test "$(cat "$IDEVICE_CACHE/COMMIT")" = "$IDEVICE_COMMIT"; then
+            echo "Using cached idevice FFI"
+            rm -rf Vendor/idevice
+            mkdir -p Vendor/idevice
+            cp -a "$IDEVICE_CACHE/." Vendor/idevice/
+          else
+            bash scripts/build-idevice.sh "$PWD/Vendor/idevice"
+            rm -rf "$IDEVICE_CACHE"
+            mkdir -p "$IDEVICE_CACHE"
+            cp -a Vendor/idevice/. "$IDEVICE_CACHE/"
+          fi
+          test "$(cat Vendor/idevice/COMMIT)" = "$IDEVICE_COMMIT"
           test -s Vendor/idevice/lib/libidevice_ffi.a
+          test -s Vendor/idevice/include/idevice.h
 
           gmake clean || true
           gmake -j"$(sysctl -n hw.logicalcpu)" all FINALPACKAGE=1 TARGET=iphone:clang:latest:16.0
@@ -366,7 +431,7 @@ jobs:
           - original downloader, music, ringtones, settings, metadata, lyrics, logs, onboarding, intents and YouTubeKit included
           - original YouTubeKit JavaScript resources and app icon resource bundled in Filza.app
           - original audio document-import types and file-sharing declaration merged into Filza Info.plist
-          - full idevice FFI source pin: jkcoxson/idevice@37ee77cf713f483551f3cf33ea8b2087a40058ca
+          - full idevice FFI source pin: jkcoxson/idevice@${IDEVICE_COMMIT}
           - final rebuilt IPA SHA-256: ${FILZA_FINAL_SHA}
           - required bundle identifier: com.apple.mobile.MobileHouseArrest
           - preserve that identifier when signing
