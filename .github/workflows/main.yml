@@ -28,8 +28,8 @@ jobs:
       FILZA_UPSTREAM_NAME: FilzaSlop-v1.0.1-unsigned.ipa
       FILZA_UPSTREAM_SHA256: 36a13f2b6d77a86cc32d7744555a176a2092e933d3746e999110f1717d36a6ba
       FILZA_FORK_REPO: NightVibes33/FilzaSlop
-      FILZA_FORK_COMMIT: 641574584c4b30c49842b86ec2e3ccad9960618c
-      FILZA_FORK_IPA: FilzaSlop-full-ByeTunes-iOS27-6415745.ipa
+      FILZA_FORK_COMMIT: 43ccb15cc4cd69b28aadd98a4042e0ce78ad74bd
+      FILZA_FORK_IPA: FilzaSlop-full-ByeTunes-iOS27-43ccb15.ipa
 
     steps:
       - name: Xcode 26.2 / iOS 26.2 Setup
@@ -171,6 +171,8 @@ jobs:
           grep -aFq 'LaunchServices fallback' "$BUILT_DYLIB"
           grep -aFq 'LaunchServices app discovery' "$BUILT_DYLIB"
           grep -aFq 'FILZA_MCM_DISABLE_LS_DISCOVERY' "$BUILT_DYLIB"
+          grep -aFq 'blocked recursive Music Library embedding' "$BUILT_DYLIB"
+          grep -aFq 'class-local Music Library viewDidLoad override' "$BUILT_DYLIB"
 
           bash scripts/stage-byetunes-resources.sh .theos/byetunes-resources
           test -s .theos/byetunes-resources/meriyah.umd.js
@@ -243,6 +245,8 @@ jobs:
           grep -aFq 'LaunchServices fallback' "$FINAL_DYLIBS"
           grep -aFq 'LaunchServices app discovery' "$FINAL_DYLIBS"
           grep -aFq 'FILZA_MCM_DISABLE_LS_DISCOVERY' "$FINAL_DYLIBS"
+          grep -aFq 'blocked recursive Music Library embedding' "$FINAL_DYLIBS"
+          grep -aFq 'class-local Music Library viewDidLoad override' "$FINAL_DYLIBS"
           test -s "$FINAL_APP/meriyah.umd.js"
           test -s "$FINAL_APP/astring.umd.js"
           test -s "$FINAL_APP/yt_ejs_helper.js"
@@ -250,7 +254,7 @@ jobs:
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$FINAL_APP/Info.plist")" = "com.apple.mobile.MobileHouseArrest"
           test "$(/usr/libexec/PlistBuddy -c 'Print :UIFileSharingEnabled' "$FINAL_APP/Info.plist")" = "true"
           /usr/libexec/PlistBuddy -c 'Print :CFBundleDocumentTypes' "$FINAL_APP/Info.plist"
-          echo "Verified in-place ByeTunes resources, iOS 26/27 discovery, and dylib SHA-256: $FINAL_HASH"
+          echo "Verified ByeTunes crash guards, iOS 26/27 discovery, resources, and dylib SHA-256: $FINAL_HASH"
           shasum -a 256 "$GITHUB_WORKSPACE/$FILZA_FORK_IPA"
 
       - name: Build real-device IPA
@@ -340,6 +344,9 @@ jobs:
           - replacement dylib source commit: ${FILZA_FORK_COMMIT}
           - iOS 26 third-party app discovery updated from upstream 583fc091 / v1.0.1
           - iOS 27-tolerant LaunchServices csstore scan accepts versioned LaunchServices*.csstore files and verifies candidates with class-2 ContainerManager lookups
+          - ByeTunes Music Library hook is class-local when Filza inherits viewDidLoad; superclass UIKit implementations are not replaced
+          - ByeTunes embed has a per-controller re-entry guard and SwiftUI host creation is deferred to the next main run-loop turn
+          - embedded idevice logger registration is non-fatal if a tracing subscriber already exists in the Filza process
           - complete ByeTunes ContentView embedded in-place inside Filza TGMusicLibraryViewController
           - no separate ByeTunes modal launcher or reduced custom music table in the compiled target
           - complete ByeTunes source pin: NightVibes33/ByeTunes@1a90f9e0f2b1a1787b208809ad2373f5c52175c8
