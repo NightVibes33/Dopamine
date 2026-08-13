@@ -28,8 +28,8 @@ jobs:
       FILZA_UPSTREAM_NAME: FilzaSlop-v1.0.1-unsigned.ipa
       FILZA_UPSTREAM_SHA256: 36a13f2b6d77a86cc32d7744555a176a2092e933d3746e999110f1717d36a6ba
       FILZA_FORK_REPO: NightVibes33/FilzaSlop
-      FILZA_FORK_COMMIT: c74e9ef00c110238c6e7da17bc8a0efe94df1dfd
-      FILZA_FORK_IPA: FilzaSlop-full-ByeTunes-badquery-iOS27-c74e9ef.ipa
+      FILZA_FORK_COMMIT: 4740b2c46dbca1fdd2f2a317c5342a586cc4c2b4
+      FILZA_FORK_IPA: FilzaSlop-full-ByeTunes-badquery-iOS27-4740b2c.ipa
       BAD_QUERY_COMMIT: 73ef6da1adabef0982fd00e36cb85f21b8f8194a
       IDEVICE_COMMIT: 37ee77cf713f483551f3cf33ea8b2087a40058ca
 
@@ -242,6 +242,8 @@ jobs:
           grep -aFq 'FILZA_MCM_DISABLE_LS_DISCOVERY' "$BUILT_DYLIB"
           grep -aFq 'blocked recursive Music Library embedding' "$BUILT_DYLIB"
           grep -aFq 'class-local Music Library viewDidLoad override' "$BUILT_DYLIB"
+          grep -aFq 'intercepted TGMusicLibraryViewController before view loading' "$BUILT_DYLIB"
+          grep -aFq 'routing Filza Music Library directly to' "$BUILT_DYLIB"
           grep -aFq '[AppsManagerFix][bad_query]' "$BUILT_DYLIB"
           grep -aFq 'sandbox_extension_consume' "$BUILT_DYLIB"
 
@@ -318,6 +320,8 @@ jobs:
           grep -aFq 'FILZA_MCM_DISABLE_LS_DISCOVERY' "$FINAL_DYLIBS"
           grep -aFq 'blocked recursive Music Library embedding' "$FINAL_DYLIBS"
           grep -aFq 'class-local Music Library viewDidLoad override' "$FINAL_DYLIBS"
+          grep -aFq 'intercepted TGMusicLibraryViewController before view loading' "$FINAL_DYLIBS"
+          grep -aFq 'routing Filza Music Library directly to' "$FINAL_DYLIBS"
           grep -aFq '[AppsManagerFix][bad_query]' "$FINAL_DYLIBS"
           grep -aFq 'sandbox_extension_consume' "$FINAL_DYLIBS"
           test -s "$FINAL_APP/meriyah.umd.js"
@@ -327,7 +331,7 @@ jobs:
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$FINAL_APP/Info.plist")" = "com.apple.mobile.MobileHouseArrest"
           test "$(/usr/libexec/PlistBuddy -c 'Print :UIFileSharingEnabled' "$FINAL_APP/Info.plist")" = "true"
           /usr/libexec/PlistBuddy -c 'Print :CFBundleDocumentTypes' "$FINAL_APP/Info.plist"
-          echo "Verified ByeTunes crash guards, iOS 26/27 discovery, pinned bad_query fallback, resources, and dylib SHA-256: $FINAL_HASH"
+          echo "Verified ByeTunes direct-route crash fix, iOS 26/27 discovery, pinned bad_query fallback, resources, and dylib SHA-256: $FINAL_HASH"
           shasum -a 256 "$GITHUB_WORKSPACE/$FILZA_FORK_IPA"
 
       - name: Build real-device IPA
@@ -421,10 +425,10 @@ jobs:
           - MobileHouseArrest class-2 activation remains the primary app-data route
           - when a selected class-2 root resolves but MHA sandbox-extension activation fails, pinned forcequitOS/bad_query@${BAD_QUERY_COMMIT} is attempted only for that exact selected container root
           - bad_query handles remain active per selected app and the path must pass opendir/readdir before Filza opens it
-          - ByeTunes Music Library hook is class-local when Filza inherits viewDidLoad; superclass UIKit implementations are not replaced
-          - ByeTunes embed has a per-controller re-entry guard and SwiftUI host creation is deferred to the next main run-loop turn
+          - Filza Music Library navigation is intercepted before TGMusicLibraryViewController view loading and routed directly to the complete ByeTunes SwiftUI ContentView
+          - TGMusicLibraryViewController viewDidLoad replacement remains a fallback only and does not invoke the legacy Filza implementation
+          - ByeTunes embed fallback has a per-controller re-entry guard; host creation/embed failures show a failure view instead of intentionally entering the legacy music path
           - embedded idevice logger registration is non-fatal if a tracing subscriber already exists in the Filza process
-          - complete ByeTunes ContentView embedded in-place inside Filza TGMusicLibraryViewController
           - no separate ByeTunes modal launcher or reduced custom music table in the compiled target
           - complete ByeTunes source pin: NightVibes33/ByeTunes@1a90f9e0f2b1a1787b208809ad2373f5c52175c8
           - 47 original ByeTunes Swift files compiled; only standalone @main shell omitted
