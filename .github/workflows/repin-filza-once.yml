@@ -19,29 +19,18 @@ jobs:
           ref: iphone16-ios27-v2
           fetch-depth: 0
 
-      - name: Pin merged FilzaSlop and remove helper
+      - name: Pin merged FilzaSlop
         shell: bash
         run: |
           set -euxo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path('.github/workflows/main.yml')
-          s = p.read_text()
-          old_commit = 'FILZA_FORK_COMMIT: 4740b2c46dbca1fdd2f2a317c5342a586cc4c2b4'
-          new_commit = 'FILZA_FORK_COMMIT: e003412e404aa48e39011317f60cade8bb2b3620'
-          old_ipa = 'FILZA_FORK_IPA: FilzaSlop-full-ByeTunes-badquery-iOS27-4740b2c.ipa'
-          new_ipa = 'FILZA_FORK_IPA: FilzaSlop-full-ByeTunes-badquery-iOS27-e003412.ipa'
-          if s.count(old_commit) != 1:
-              raise SystemExit(f'expected exactly one old Filza commit pin, got {s.count(old_commit)}')
-          if s.count(old_ipa) != 1:
-              raise SystemExit(f'expected exactly one old Filza IPA name, got {s.count(old_ipa)}')
-          p.write_text(s.replace(old_commit, new_commit).replace(old_ipa, new_ipa))
-          PY
+          sed -i 's/FILZA_FORK_COMMIT: 4740b2c46dbca1fdd2f2a317c5342a586cc4c2b4/FILZA_FORK_COMMIT: e003412e404aa48e39011317f60cade8bb2b3620/' .github/workflows/main.yml
+          sed -i 's/FilzaSlop-full-ByeTunes-badquery-iOS27-4740b2c\.ipa/FilzaSlop-full-ByeTunes-badquery-iOS27-e003412.ipa/' .github/workflows/main.yml
           grep -Fq 'FILZA_FORK_COMMIT: e003412e404aa48e39011317f60cade8bb2b3620' .github/workflows/main.yml
           grep -Fq 'FILZA_FORK_IPA: FilzaSlop-full-ByeTunes-badquery-iOS27-e003412.ipa' .github/workflows/main.yml
-          git rm .github/workflows/repin-filza-once.yml
           git add .github/workflows/main.yml
+          git diff --cached --check
+          git diff --cached
           git commit -m 'Pin merged FilzaSlop upstream fixes'
           git push origin HEAD:iphone16-ios27-v2
