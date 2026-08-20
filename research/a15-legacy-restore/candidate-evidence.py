@@ -48,7 +48,7 @@ def build_report(subsystem,cross,strings):
             "source_kind":base.get("source_kind","unknown"),
             "static_subsystem_tags":tags,
             "static_labels":labels,
-            "A14_similarity":(ctx.get("A14_t8103") or {}).get("best_similarity"),
+            "A14_similarity":(ctx.get("A14_t8101") or {}).get("best_similarity"),
             "A16_similarity":(ctx.get("A16_t8120") or {}).get("best_similarity"),
             "neighboring_generation_context":ctx.get("context_pattern","unknown"),
             "hypothesis_scope":hypothesis(tags,base.get("archetype","unknown")),
