@@ -6,19 +6,33 @@ The current public `surrealra1n` development branch describes tethered downgrade
 
 ## A15 comparison
 
-Public `usbliter8` device lists reviewed for this project enumerate A12/A13 targets, including iPhone SE (2nd generation, A13), but do not enumerate iPhone SE (3rd generation, A15). Independent public writeups likewise describe the underlying USB/SecureROM bug as an A12/A13 technique.
+Public `usbliter8` device/support information reviewed for this project enumerates A12/A13 targets, including iPhone SE (2nd generation, A13), but not iPhone SE (3rd generation, A15). Independent writeups likewise describe the underlying SecureROM/USB exploit class as A12/A13.
+
+Separate public A15 TXM/SPTM patch-analysis exists and includes iPhone SE 3 references. This is a downstream patch-analysis capability, not evidence of an A15 SecureROM/DFU entry primitive. It therefore cannot substitute for the missing earliest-stage boot control required to transfer the A12/A13 downgrade architecture.
+
+## Real 19E241 firmware result
+
+The project has now parsed the actual Apple `BuildManifest.plist` through GitHub Actions run `32402473440`.
+
+Confirmed:
+
+- `iPhone14,6` is listed as a supported product.
+- Two D49AP identities match CPID `0x8110` and BDID `0x10`.
+- Each identity has 80 components.
+- iBSS, iBEC, iBoot, LLB, SEP, RestoreSEP, DeviceTree, kernel, baseband and restore environment entries are present.
+- The erase/update identities share the same boot-chain/SEP/kernel paths and differ at path level only in `RestoreRamDisk` and its `RestoreTrustCache`.
+
+The firmware-selection question is therefore solved.
 
 ## Consequence for this project
 
-`iPhone14,6` has the correct historical iOS 15.4 firmware, board identity, and target-specific boot components. Those facts solve the *firmware selection* question, not the *boot authority* question.
+The unresolved dependency is upstream of `futurerestore`, BuildManifest parsing, and component selection:
 
-The unresolved dependency is therefore upstream of `futurerestore`, BuildManifest parsing, and component selection:
+1. An A15 early-boot capability sufficient to control the restore/boot path.
+2. Independent evidence for the relevant A15 SEP/firmware compatibility.
+3. A valid restore-authorization strategy for the target state.
 
-1. Obtain control at a sufficiently early A15 boot/restore stage.
-2. Establish that the resulting A15 environment can use the target SEP/firmware combination.
-3. Only then does a restore-engine adaptation become meaningful.
-
-No public capability satisfying step 1 was identified in the reviewed sources as of 2026-08-20.
+No public capability satisfying item 1 was identified in the reviewed sources as of 2026-08-20.
 
 ## Current disposition
 
