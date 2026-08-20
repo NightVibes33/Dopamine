@@ -97,8 +97,15 @@ jobs:
             research/a15-legacy-restore/data/t8110/A15-B0-B1.bin \
             --output research/a15-legacy-restore/data/t8110/romdiff-a0-b0b1.json
 
-      - name: Install ARM64 static-analysis dependency
-        run: python3 -m pip install --disable-pip-version-check 'capstone>=5,<6'
+      - name: Install pinned static-analysis dependencies
+        run: |
+          python3 -m pip install --disable-pip-version-check 'capstone>=5,<6'
+          python3 -m pip install --disable-pip-version-check 'git+https://github.com/jonpalmisc/ibis.git@e22ed6354139f8dbb0a88b9de4fdb5e452d8717b'
+
+      - name: Generate segment-accurate Ibis layouts
+        run: |
+          ibis -j research/a15-legacy-restore/data/t8110/A15-A0.bin > research/a15-legacy-restore/data/t8110/ibis-layout-a0.json
+          ibis -j research/a15-legacy-restore/data/t8110/A15-B0-B1.bin > research/a15-legacy-restore/data/t8110/ibis-layout-b0b1.json
 
       - name: Generate ARM64 instruction-class diff
         run: |
@@ -122,6 +129,14 @@ jobs:
             research/a15-legacy-restore/data/t8110/function-fingerprint-a0-b0b1.json \
             --output research/a15-legacy-restore/data/t8110/function-feature-triage-a0-b0b1.json
 
+      - name: Classify ranked hotspots by SecureROM segment
+        run: |
+          python3 research/a15-legacy-restore/segment-hotspot.py \
+            research/a15-legacy-restore/data/t8110/ibis-layout-a0.json \
+            research/a15-legacy-restore/data/t8110/ibis-layout-b0b1.json \
+            research/a15-legacy-restore/data/t8110/function-feature-triage-a0-b0b1.json \
+            --output research/a15-legacy-restore/data/t8110/segment-hotspots-a0-b0b1.json
+
       - name: Remove ROM binaries before artifact upload
         run: rm -f research/a15-legacy-restore/data/t8110/*.bin
 
@@ -139,3 +154,6 @@ jobs:
             research/a15-legacy-restore/data/t8110/arm64-static-diff-a0-b0b1.json
             research/a15-legacy-restore/data/t8110/function-fingerprint-a0-b0b1.json
             research/a15-legacy-restore/data/t8110/function-feature-triage-a0-b0b1.json
+            research/a15-legacy-restore/data/t8110/ibis-layout-a0.json
+            research/a15-legacy-restore/data/t8110/ibis-layout-b0b1.json
+            research/a15-legacy-restore/data/t8110/segment-hotspots-a0-b0b1.json
