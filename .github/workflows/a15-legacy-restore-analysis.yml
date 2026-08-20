@@ -125,6 +125,7 @@ jobs:
         run: |
           ibis -j research/a15-legacy-restore/data/t8110/A15-A0.bin > research/a15-legacy-restore/data/t8110/ibis-layout-a0.json
           ibis -j research/a15-legacy-restore/data/t8110/A15-B0-B1.bin > research/a15-legacy-restore/data/t8110/ibis-layout-b0b1.json
+          ibis -j research/a15-legacy-restore/data/context/A14-t8101.bin > research/a15-legacy-restore/data/context/ibis-layout-a14-b1.json
 
       - name: Generate ARM64 instruction-class diff
         run: |
@@ -166,6 +167,14 @@ jobs:
             research/a15-legacy-restore/data/t8110/segment-hotspots-a0-b0b1.json \
             --output research/a15-legacy-restore/data/t8110/string-ref-hotspots-a0-b0b1.json
 
+      - name: Generate A14-to-A15 DFU descriptor lineage
+        run: |
+          python3 research/a15-legacy-restore/dfu-lineage.py \
+            --image A14-B1 research/a15-legacy-restore/data/context/A14-t8101.bin research/a15-legacy-restore/data/context/ibis-layout-a14-b1.json \
+            --image A15-A0 research/a15-legacy-restore/data/t8110/A15-A0.bin research/a15-legacy-restore/data/t8110/ibis-layout-a0.json \
+            --image A15-B0-B1 research/a15-legacy-restore/data/t8110/A15-B0-B1.bin research/a15-legacy-restore/data/t8110/ibis-layout-b0b1.json \
+            --output research/a15-legacy-restore/data/t8110/dfu-lineage-a14-a15.json
+
       - name: Generate anonymized subsystem archetype triage
         run: |
           python3 research/a15-legacy-restore/subsystem-triage.py \
@@ -178,7 +187,7 @@ jobs:
             research/a15-legacy-restore/data/t8110/A15-A0.bin \
             research/a15-legacy-restore/data/t8110/A15-B0-B1.bin \
             research/a15-legacy-restore/data/t8110/function-feature-triage-a0-b0b1.json \
-            research/a15-legacy-restore/data/context/A14-t8103.bin \
+            research/a15-legacy-restore/data/context/A14-t8101.bin \
             research/a15-legacy-restore/data/context/A16-t8120.bin \
             --output research/a15-legacy-restore/data/t8110/cross-soc-context-a0-b0b1.json
 
@@ -211,6 +220,8 @@ jobs:
             research/a15-legacy-restore/data/t8110/ibis-layout-b0b1.json
             research/a15-legacy-restore/data/t8110/segment-hotspots-a0-b0b1.json
             research/a15-legacy-restore/data/t8110/string-ref-hotspots-a0-b0b1.json
+            research/a15-legacy-restore/data/t8110/dfu-lineage-a14-a15.json
             research/a15-legacy-restore/data/t8110/subsystem-triage-a0-b0b1.json
             research/a15-legacy-restore/data/t8110/cross-soc-context-a0-b0b1.json
             research/a15-legacy-restore/data/t8110/candidate-evidence-a0-b0b1.json
+            research/a15-legacy-restore/data/context/ibis-layout-a14-b1.json
