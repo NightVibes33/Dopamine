@@ -8,14 +8,16 @@ The analysis is static and non-operational. It does not emit function offsets, b
 
 ## Validation
 
-- Workflow: `A15 CAND-001 Static Structure`
-- Run: `32410014744`
-- Result: `success`
-- Head: `14010b67dbc48ee24e2caa8f65708351b25b12e7`
-- Artifact: `9421751435`
-- Artifact digest: `sha256:eb2cfee284f26552b3125d568e9157f5985fdc82ee87d6f9a2b22a00937e8a25`
+Latest validated head: `c40a9ce57f9e2f3e18cac25f117dd9291780b465`
 
-The workflow re-fetches and verifies the pinned public T8110 ROM revisions, reconstructs the changed-function set, characterizes `CAND-001`, verifies report redaction, removes the ROM binaries, and uploads only the aggregate JSON report.
+- `A15 CAND-001 Static Structure` run `32410272841` — `success`
+  - Artifact `9421844499`
+  - Digest `sha256:be17f69c56710918275db3e4f6b5230e3be529e63c8d7e59fd18c67d097c9100`
+- `A15 Legacy Restore Analysis` run `32410272708` — `success`
+  - Artifact `9421857118`
+  - Digest `sha256:e6f23771bf5d5a7d602701fb2619afa1c4d223468b91d674f251db558a151299`
+
+The structure workflow re-fetches and verifies the pinned public T8110 ROM revisions, reconstructs the changed-function set, characterizes `CAND-001`, verifies report redaction, removes the ROM binaries, and uploads only the aggregate JSON report.
 
 ## Aggregate CFG result
 
