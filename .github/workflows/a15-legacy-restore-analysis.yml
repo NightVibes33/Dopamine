@@ -8,6 +8,12 @@ on:
     paths:
       - 'research/a15-legacy-restore/**'
       - '.github/workflows/a15-legacy-restore-analysis.yml'
+  pull_request:
+    branches:
+      - 2.x
+    paths:
+      - 'research/a15-legacy-restore/**'
+      - '.github/workflows/a15-legacy-restore-analysis.yml'
 
 permissions:
   contents: read
