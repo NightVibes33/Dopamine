@@ -114,6 +114,14 @@ jobs:
             research/a15-legacy-restore/data/t8110/A15-B0-B1.bin \
             --output research/a15-legacy-restore/data/t8110/function-fingerprint-a0-b0b1.json
 
+      - name: Generate changed-function feature triage
+        run: |
+          python3 research/a15-legacy-restore/function-feature-triage.py \
+            research/a15-legacy-restore/data/t8110/A15-A0.bin \
+            research/a15-legacy-restore/data/t8110/A15-B0-B1.bin \
+            research/a15-legacy-restore/data/t8110/function-fingerprint-a0-b0b1.json \
+            --output research/a15-legacy-restore/data/t8110/function-feature-triage-a0-b0b1.json
+
       - name: Remove ROM binaries before artifact upload
         run: rm -f research/a15-legacy-restore/data/t8110/*.bin
 
@@ -130,3 +138,4 @@ jobs:
             research/a15-legacy-restore/data/t8110/romdiff-a0-b0b1.json
             research/a15-legacy-restore/data/t8110/arm64-static-diff-a0-b0b1.json
             research/a15-legacy-restore/data/t8110/function-fingerprint-a0-b0b1.json
+            research/a15-legacy-restore/data/t8110/function-feature-triage-a0-b0b1.json
