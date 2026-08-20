@@ -12,11 +12,27 @@
 
 ## Verified firmware facts
 
-- The target IPSW is `iPhone14,6_15.4_19E241_Restore.ipsw`.
-- The public checksum is SHA-256 `b75a78bb659277461189946838573eae5eee1a540737c4a681058603cdf3523b`.
-- The IPSW is currently unsigned by Apple's normal restore service.
+- Target IPSW: `iPhone14,6_15.4_19E241_Restore.ipsw`.
+- SHA-256: `b75a78bb659277461189946838573eae5eee1a540737c4a681058603cdf3523b`.
+- The IPSW is unsigned by Apple's normal restore service.
 - The exact Apple CDN object is recorded in `target-profile.json`.
-- Public firmware metadata identifies D49/A15 boot-chain and SEP components for this build.
+
+## Real Apple BuildManifest result
+
+The automated range-fetch pipeline successfully extracted and parsed the actual Apple `BuildManifest.plist`.
+
+- `ProductVersion`: `15.4`
+- `ProductBuildVersion`: `19E241`
+- `SupportedProductTypes`: `iPhone14,6`
+- Build identities: `2`
+- Verified D49AP matches: `2`
+- Both matches identify CPID `0x8110`, BDID `0x10`, security domain `0x01`, and `DeviceClass=d49ap`.
+- Identity 0: `Customer Erase Install (IPSW)` / `RestoreBehavior=Erase`.
+- Identity 1: `Customer Upgrade Install (IPSW)` / `RestoreBehavior=Update`.
+- Each identity contains 80 manifest components.
+- Production iBSS, iBEC, iBoot, LLB, SEP, RestoreSEP, DeviceTree, kernel, restore-kernel, baseband, and restore-ramdisk entries are present.
+
+The target-IPSW/device-identity question is therefore fully resolved: `19E241` is genuinely packaged for the SE 3 / D49AP hardware.
 
 ## Tooling status
 
@@ -24,29 +40,31 @@
 |---|---|
 | Verified hardware profile | DONE |
 | Correct BuildManifest identity matching (DeviceClass + CPID/BDID) | DONE |
-| HTTP-range extraction of `BuildManifest.plist` | IMPLEMENTED |
-| Offline manifest validator | IMPLEMENTED |
-| Structured report generator | IMPLEMENTED |
-| Component matrix generator | IMPLEMENTED |
-| Synthetic unit tests, including HTTP-range ZIP extraction | IMPLEMENTED |
-| GitHub Actions real-manifest analysis | IMPLEMENTED |
+| HTTP-range extraction of `BuildManifest.plist` | VERIFIED WORKING |
+| Offline manifest validator | VERIFIED WORKING |
+| Structured report generator | VERIFIED WORKING |
+| Component matrix generator | VERIFIED WORKING |
+| Synthetic unit tests, including HTTP-range ZIP extraction | PASS |
+| GitHub Actions real-manifest analysis | PASS |
 | Restore authorization bypass | NOT ESTABLISHED |
 | A15 SecureROM/BootROM primitive | NOT ESTABLISHED |
 | A15 SEP compatibility workaround | NOT ESTABLISHED |
 
+Successful reference run: `32402243047`; artifact `9418906495`.
+
 ## Decisive architecture gap
 
-The current public downgrade path used as the reference (`surrealra1n`) documents A12/A13 iPhone support, not A15. The `usbliter8` SecureROM research it relies on is publicly documented for A12/A13 devices; the published device lists include the SE 2 (A13) but not the SE 3 (A15).
+The current public downgrade path used as the reference (`surrealra1n`) documents A12/A13 iPhone support, not A15. The public `usbliter8` SecureROM research it relies on lists A12/A13 devices, including the SE 2 (A13), but not the SE 3 (A15). Public A15/T8110 references reviewed for this project do not list a corresponding BootROM vulnerability.
 
-That difference is upstream of IPSW parsing. A perfectly valid `19E241` BuildManifest does not provide the missing A15 boot/restore control primitive.
+That gap is upstream of IPSW parsing. The real manifest proves that all expected D49 production components exist; it does not provide a way to make an unsigned restore chain execute on A15.
 
 ## Current conclusion
 
 **NOT CURRENTLY POSSIBLE WITH THE PUBLICLY DOCUMENTED TECHNIQUES REVIEWED BY THIS PROJECT.**
 
-This is not a claim that an A15 downgrade is theoretically impossible. It means the presently public A12/A13 `usbliter8` / `surrealra1n` route cannot simply be ported to `iPhone14,6`, because no equivalent public A15 SecureROM/boot-chain capability has been established.
+This is not a claim that an A15 downgrade is theoretically impossible. It means the presently public A12/A13 `usbliter8` / `surrealra1n` route cannot simply be ported to `iPhone14,6`, because no equivalent public A15 SecureROM/early-boot capability has been established.
 
-The real BuildManifest analysis remains useful for exact component inventory and reproducibility, but it is no longer the decisive feasibility blocker. The decisive missing capability is an A15-class primitive that can provide the boot/restore control the A12/A13 method obtains from `usbliter8`, followed by independent SEP/firmware compatibility evidence.
+The decisive missing capability is an A15-class primitive that provides the boot/restore control the A12/A13 method obtains from `usbliter8`, followed by independent SEP/firmware compatibility evidence. The actual `19E241` manifest is no longer an unknown.
 
 ## Safety / research boundary
 
