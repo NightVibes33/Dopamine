@@ -1,0 +1,44 @@
+{
+  "target": {
+    "device": "iPhone14,6",
+    "board": "D49AP",
+    "platform": "t8110",
+    "cpid": "0x8110",
+    "bdid": "0x10",
+    "version": "15.4",
+    "build": "19E241",
+    "sha256": "b75a78bb659277461189946838573eae5eee1a540737c4a681058603cdf3523b"
+  },
+  "sources": [
+    {
+      "name": "IPSW Downloads",
+      "url": "https://ipsw.me/download/iPhone14%2C6/19E241/",
+      "claims": ["product/build mapping", "unsigned status", "target IPSW checksum", "Apple-hosted download link"]
+    },
+    {
+      "name": "IPSW Downloads device info",
+      "url": "https://ipsw.me/iPhone14%2C6/info/",
+      "claims": ["D49AP board", "t8110 platform", "CPID 0x8110", "BDID 0x10"]
+    },
+    {
+      "name": "The Apple Wiki - 19E241 keys",
+      "url": "https://theapplewiki.com/wiki/Keys:SkyEcho_19E241_(iPhone14,6)",
+      "claims": ["D49/A15 component filenames", "baseband metadata"]
+    },
+    {
+      "name": "The Apple Wiki - A15",
+      "url": "https://theapplewiki.com/wiki/A15",
+      "claims": ["t8110 is A15", "BootROM 6338.0.0.200.19", "no public BootROM vulnerability listed"]
+    },
+    {
+      "name": "surrealra1n",
+      "url": "https://github.com/pwnerblu/surrealra1n",
+      "claims": ["public A12/A13 support boundary", "reference restore architecture"]
+    },
+    {
+      "name": "usbliter8ra1n public research",
+      "url": "https://github.com/Leeksov/usbliter8ra1n",
+      "claims": ["usbliter8 public device list is A12/A13", "SE 2 A13 supported", "no SE 3 A15 target listed"]
+    }
+  ]
+}

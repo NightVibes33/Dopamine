@@ -1,0 +1,261 @@
+name: A15 Legacy Restore Analysis
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - research/a15-legacy-restore-lab
+    paths:
+      - 'research/a15-legacy-restore/**'
+      - '.github/workflows/a15-legacy-restore-analysis.yml'
+  pull_request:
+    branches:
+      - 2.x
+    paths:
+      - 'research/a15-legacy-restore/**'
+      - '.github/workflows/a15-legacy-restore-analysis.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Syntax-check research helpers
+        run: |
+          python3 -m compileall -q research/a15-legacy-restore
+          sh -n research/a15-legacy-restore/collect-manifest.sh
+          sh -n research/a15-legacy-restore/fetch-target.sh
+
+      - name: Run offline unit tests
+        run: python3 -m unittest discover -s research/a15-legacy-restore/tests -v
+
+      - name: Read verified target profile
+        id: target
+        shell: bash
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          p=json.load(open('research/a15-legacy-restore/target-profile.json'))
+          print('url='+p['apple_cdn_url'])
+          print('build='+p['target_build'])
+          PY
+
+      - name: Extract BuildManifest from Apple CDN by HTTP range
+        run: |
+          mkdir -p research/a15-legacy-restore/data/19E241
+          python3 research/a15-legacy-restore/remote_manifest.py \
+            '${{ steps.target.outputs.url }}' \
+            --output research/a15-legacy-restore/data/19E241/BuildManifest.plist
+
+      - name: Validate target hardware identity
+        run: |
+          python3 research/a15-legacy-restore/validate_manifest.py \
+            research/a15-legacy-restore/data/19E241/BuildManifest.plist \
+            | tee research/a15-legacy-restore/data/19E241/validation.txt
+
+      - name: Generate structured report
+        run: |
+          python3 research/a15-legacy-restore/report.py \
+            research/a15-legacy-restore/data/19E241/BuildManifest.plist \
+            --json research/a15-legacy-restore/data/19E241/report.json \
+            --text research/a15-legacy-restore/data/19E241/report.txt
+
+      - name: Generate component matrix
+        run: |
+          python3 research/a15-legacy-restore/component-matrix.py \
+            research/a15-legacy-restore/data/19E241/BuildManifest.plist \
+            --output research/a15-legacy-restore/data/19E241/component-matrix.json
+
+      - name: Fetch pinned public T8110 SecureROM revisions
+        run: |
+          mkdir -p research/a15-legacy-restore/data/t8110
+          python3 - <<'PY'
+          import json, pathlib, subprocess, urllib.parse, urllib.request
+          cfg=json.load(open('research/a15-legacy-restore/rom-sources.json'))
+          root=pathlib.Path('research/a15-legacy-restore/data/t8110')
+          base=f"https://raw.githubusercontent.com/{cfg['source_repository']}/{cfg['source_commit']}/"
+          for entry in cfg['roms']:
+              url=base+urllib.parse.quote(entry['path'], safe='/')
+              out=root/(entry['label']+'.bin')
+              with urllib.request.urlopen(url, timeout=60) as r:
+                  out.write_bytes(r.read())
+              blob=subprocess.check_output(['git','hash-object',str(out)], text=True).strip()
+              if blob != entry['git_blob_sha']:
+                  raise SystemExit(f"Git blob mismatch for {entry['label']}: {blob} != {entry['git_blob_sha']}")
+              print(f"verified {entry['label']} {blob} {out.stat().st_size} bytes")
+          PY
+
+      - name: Fetch pinned neighboring-SoC SecureROM context
+        run: |
+          mkdir -p research/a15-legacy-restore/data/context
+          python3 - <<'PY'
+          import json, pathlib, subprocess, urllib.parse, urllib.request
+          cfg=json.load(open('research/a15-legacy-restore/context-rom-sources.json'))
+          root=pathlib.Path('research/a15-legacy-restore/data/context')
+          base=f"https://raw.githubusercontent.com/{cfg['source_repository']}/{cfg['source_commit']}/"
+          for entry in cfg['roms']:
+              url=base+urllib.parse.quote(entry['path'], safe='/')
+              out=root/(entry['label']+'.bin')
+              with urllib.request.urlopen(url, timeout=60) as r:
+                  out.write_bytes(r.read())
+              blob=subprocess.check_output(['git','hash-object',str(out)], text=True).strip()
+              if blob != entry['git_blob_sha']:
+                  raise SystemExit(f"Git blob mismatch for {entry['label']}: {blob} != {entry['git_blob_sha']}")
+              print(f"verified {entry['label']} {blob} {out.stat().st_size} bytes")
+          PY
+
+      - name: Generate A15 A0-to-B0/B1 SecureROM structural diff
+        run: |
+          python3 research/a15-legacy-restore/romdiff.py \
+            research/a15-legacy-restore/data/t8110/A15-A0.bin \
+            research/a15-legacy-restore/data/t8110/A15-B0-B1.bin \
+            --output research/a15-legacy-restore/data/t8110/romdiff-a0-b0b1.json
+
+      - name: Install pinned static-analysis dependencies
+        run: |
+          python3 -m pip install --disable-pip-version-check 'capstone>=5,<6'
+          python3 -m pip install --disable-pip-version-check 'git+https://github.com/jonpalmisc/ibis.git@e22ed6354139f8dbb0a88b9de4fdb5e452d8717b'
+
+      - name: Generate segment-accurate Ibis layouts
+        run: |
+          ibis -j research/a15-legacy-restore/data/t8110/A15-A0.bin > research/a15-legacy-restore/data/t8110/ibis-layout-a0.json
+          ibis -j research/a15-legacy-restore/data/t8110/A15-B0-B1.bin > research/a15-legacy-restore/data/t8110/ibis-layout-b0b1.json
+          ibis -j research/a15-legacy-restore/data/context/A14-t8101.bin > research/a15-legacy-restore/data/context/ibis-layout-a14-b1.json
+          ibis -j research/a15-legacy-restore/data/context/A16-t8120.bin > research/a15-legacy-restore/data/context/ibis-layout-a16-a0.json
+
+      - name: Generate ARM64 instruction-class diff
+        run: |
+          python3 research/a15-legacy-restore/arm64-static-diff.py \
+            research/a15-legacy-restore/data/t8110/A15-A0.bin \
+            research/a15-legacy-restore/data/t8110/A15-B0-B1.bin \
+            --output research/a15-legacy-restore/data/t8110/arm64-static-diff-a0-b0b1.json
+
+      - name: Generate heuristic function fingerprint diff
+        run: |
+          python3 research/a15-legacy-restore/function-fingerprint-diff.py \
+            research/a15-legacy-restore/data/t8110/A15-A0.bin \
+            research/a15-legacy-restore/data/t8110/A15-B0-B1.bin \
+            --output research/a15-legacy-restore/data/t8110/function-fingerprint-a0-b0b1.json
+
+      - name: Generate changed-function feature triage
+        run: |
+          python3 research/a15-legacy-restore/function-feature-triage.py \
+            research/a15-legacy-restore/data/t8110/A15-A0.bin \
+            research/a15-legacy-restore/data/t8110/A15-B0-B1.bin \
+            research/a15-legacy-restore/data/t8110/function-fingerprint-a0-b0b1.json \
+            --output research/a15-legacy-restore/data/t8110/function-feature-triage-a0-b0b1.json
+
+      - name: Classify ranked hotspots by SecureROM segment
+        run: |
+          python3 research/a15-legacy-restore/segment-hotspot.py \
+            research/a15-legacy-restore/data/t8110/ibis-layout-a0.json \
+            research/a15-legacy-restore/data/t8110/ibis-layout-b0b1.json \
+            research/a15-legacy-restore/data/t8110/function-feature-triage-a0-b0b1.json \
+            --output research/a15-legacy-restore/data/t8110/segment-hotspots-a0-b0b1.json
+
+      - name: Generate read-only hotspot string labels
+        run: |
+          python3 research/a15-legacy-restore/string-ref-hotspots.py \
+            research/a15-legacy-restore/data/t8110/A15-A0.bin \
+            research/a15-legacy-restore/data/t8110/A15-B0-B1.bin \
+            research/a15-legacy-restore/data/t8110/ibis-layout-a0.json \
+            research/a15-legacy-restore/data/t8110/ibis-layout-b0b1.json \
+            research/a15-legacy-restore/data/t8110/segment-hotspots-a0-b0b1.json \
+            --output research/a15-legacy-restore/data/t8110/string-ref-hotspots-a0-b0b1.json
+
+      - name: Generate A14-to-A16 DFU descriptor lineage
+        run: |
+          python3 research/a15-legacy-restore/dfu-lineage.py \
+            --image A14-B1 research/a15-legacy-restore/data/context/A14-t8101.bin research/a15-legacy-restore/data/context/ibis-layout-a14-b1.json \
+            --image A15-A0 research/a15-legacy-restore/data/t8110/A15-A0.bin research/a15-legacy-restore/data/t8110/ibis-layout-a0.json \
+            --image A15-B0-B1 research/a15-legacy-restore/data/t8110/A15-B0-B1.bin research/a15-legacy-restore/data/t8110/ibis-layout-b0b1.json \
+            --image A16-A0 research/a15-legacy-restore/data/context/A16-t8120.bin research/a15-legacy-restore/data/context/ibis-layout-a16-a0.json \
+            --output research/a15-legacy-restore/data/t8110/dfu-lineage-a14-a16.json
+
+      - name: Generate static DFU call-neighborhood lineage
+        run: |
+          python3 research/a15-legacy-restore/dfu-call-neighborhood.py \
+            --image A14-B1 research/a15-legacy-restore/data/context/A14-t8101.bin research/a15-legacy-restore/data/context/ibis-layout-a14-b1.json \
+            --image A15-A0 research/a15-legacy-restore/data/t8110/A15-A0.bin research/a15-legacy-restore/data/t8110/ibis-layout-a0.json \
+            --image A15-B0-B1 research/a15-legacy-restore/data/t8110/A15-B0-B1.bin research/a15-legacy-restore/data/t8110/ibis-layout-b0b1.json \
+            --image A16-A0 research/a15-legacy-restore/data/context/A16-t8120.bin research/a15-legacy-restore/data/context/ibis-layout-a16-a0.json \
+            --output research/a15-legacy-restore/data/t8110/dfu-call-neighborhood-a14-a16.json
+
+      - name: Generate anonymized subsystem archetype triage
+        run: |
+          python3 research/a15-legacy-restore/subsystem-triage.py \
+            research/a15-legacy-restore/data/t8110/function-feature-triage-a0-b0b1.json \
+            --output research/a15-legacy-restore/data/t8110/subsystem-triage-a0-b0b1.json
+
+      - name: Generate anonymized neighboring-SoC architecture context
+        run: |
+          python3 research/a15-legacy-restore/cross-soc-context.py \
+            research/a15-legacy-restore/data/t8110/A15-A0.bin \
+            research/a15-legacy-restore/data/t8110/A15-B0-B1.bin \
+            research/a15-legacy-restore/data/t8110/function-feature-triage-a0-b0b1.json \
+            research/a15-legacy-restore/data/context/A14-t8101.bin \
+            research/a15-legacy-restore/data/context/A16-t8120.bin \
+            --output research/a15-legacy-restore/data/t8110/cross-soc-context-a0-b0b1.json
+
+      - name: Compare A15 revision sides independently against A14/A16
+        run: |
+          python3 research/a15-legacy-restore/revision-side-context.py \
+            research/a15-legacy-restore/data/t8110/A15-A0.bin \
+            research/a15-legacy-restore/data/t8110/A15-B0-B1.bin \
+            research/a15-legacy-restore/data/t8110/function-feature-triage-a0-b0b1.json \
+            research/a15-legacy-restore/data/context/A14-t8101.bin \
+            research/a15-legacy-restore/data/context/A16-t8120.bin \
+            --output research/a15-legacy-restore/data/t8110/revision-side-context-a0-b0b1.json
+
+      - name: Measure CAND-001 static inlining/refactor signal
+        run: |
+          python3 research/a15-legacy-restore/dfu-inlining-signal.py \
+            research/a15-legacy-restore/data/t8110/A15-A0.bin \
+            research/a15-legacy-restore/data/t8110/A15-B0-B1.bin \
+            research/a15-legacy-restore/data/t8110/function-feature-triage-a0-b0b1.json \
+            --candidate CAND-001 \
+            --output research/a15-legacy-restore/data/t8110/dfu-inlining-signal-cand001.json
+
+      - name: Merge independent anonymized candidate evidence
+        run: |
+          python3 research/a15-legacy-restore/candidate-evidence.py \
+            research/a15-legacy-restore/data/t8110/subsystem-triage-a0-b0b1.json \
+            research/a15-legacy-restore/data/t8110/cross-soc-context-a0-b0b1.json \
+            research/a15-legacy-restore/data/t8110/string-ref-hotspots-a0-b0b1.json \
+            --output research/a15-legacy-restore/data/t8110/candidate-evidence-a0-b0b1.json
+
+      - name: Remove ROM binaries before artifact upload
+        run: rm -f research/a15-legacy-restore/data/t8110/*.bin research/a15-legacy-restore/data/context/*.bin
+
+      - name: Upload analysis artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: iPhone14-6-19E241-manifest-analysis
+          path: |
+            research/a15-legacy-restore/data/19E241/BuildManifest.plist
+            research/a15-legacy-restore/data/19E241/validation.txt
+            research/a15-legacy-restore/data/19E241/report.json
+            research/a15-legacy-restore/data/19E241/report.txt
+            research/a15-legacy-restore/data/19E241/component-matrix.json
+            research/a15-legacy-restore/data/t8110/romdiff-a0-b0b1.json
+            research/a15-legacy-restore/data/t8110/arm64-static-diff-a0-b0b1.json
+            research/a15-legacy-restore/data/t8110/function-fingerprint-a0-b0b1.json
+            research/a15-legacy-restore/data/t8110/function-feature-triage-a0-b0b1.json
+            research/a15-legacy-restore/data/t8110/ibis-layout-a0.json
+            research/a15-legacy-restore/data/t8110/ibis-layout-b0b1.json
+            research/a15-legacy-restore/data/t8110/segment-hotspots-a0-b0b1.json
+            research/a15-legacy-restore/data/t8110/string-ref-hotspots-a0-b0b1.json
+            research/a15-legacy-restore/data/t8110/dfu-lineage-a14-a16.json
+            research/a15-legacy-restore/data/t8110/dfu-call-neighborhood-a14-a16.json
+            research/a15-legacy-restore/data/t8110/subsystem-triage-a0-b0b1.json
+            research/a15-legacy-restore/data/t8110/cross-soc-context-a0-b0b1.json
+            research/a15-legacy-restore/data/t8110/revision-side-context-a0-b0b1.json
+            research/a15-legacy-restore/data/t8110/dfu-inlining-signal-cand001.json
+            research/a15-legacy-restore/data/t8110/candidate-evidence-a0-b0b1.json
+            research/a15-legacy-restore/data/context/ibis-layout-a14-b1.json
+            research/a15-legacy-restore/data/context/ibis-layout-a16-a0.json

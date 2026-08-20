@@ -1,0 +1,63 @@
+name: A15 GitHub iPhone Simulator Probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - research/a15-legacy-restore-lab
+    paths:
+      - 'research/a15-legacy-restore/github-simulator-probe.sh'
+      - '.github/workflows/a15-github-simulator-probe.yml'
+  pull_request:
+    branches:
+      - 2.x
+    paths:
+      - 'research/a15-legacy-restore/**'
+      - '.github/workflows/a15-github-simulator-probe.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: macos-26
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show available Xcode/iOS Simulator environment
+        run: |
+          xcodebuild -version
+          xcrun simctl list runtimes
+          xcrun simctl list devicetypes | grep -E '^iPhone' || true
+
+      - name: Boot GitHub-hosted iPhone Simulator and probe capability
+        run: |
+          bash research/a15-legacy-restore/github-simulator-probe.sh \
+            research/a15-legacy-restore/data/simulator
+
+      - name: Validate non-hardware conclusion
+        run: |
+          python3 - <<'PY'
+          import json
+          p='research/a15-legacy-restore/data/simulator/simulator-capability.json'
+          obj=json.load(open(p))
+          scope=obj['research_scope']
+          assert scope['can_run_ios_userspace_simulator_code'] is True
+          assert scope['can_execute_target_t8110_securerom'] is False
+          assert scope['can_enter_physical_dfu_for_iphone14_6'] is False
+          assert scope['can_model_physical_sep_firmware'] is False
+          assert scope['can_validate_cand001_runtime_reachability'] is False
+          assert obj['vulnerability_status']=='NOT_ESTABLISHED'
+          print('simulator capability gate passed')
+          PY
+
+      - name: Upload simulator capability artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: a15-github-iphone-simulator-probe
+          path: |
+            research/a15-legacy-restore/data/simulator/host.txt
+            research/a15-legacy-restore/data/simulator/simulator.txt
+            research/a15-legacy-restore/data/simulator/simulator-capability.json
+          if-no-files-found: error

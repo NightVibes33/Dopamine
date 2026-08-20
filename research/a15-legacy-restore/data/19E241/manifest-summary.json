@@ -1,0 +1,57 @@
+{
+  "component_count_per_identity": 80,
+  "component_count_total": 160,
+  "critical_components": {
+    "BasebandFirmware": "Firmware/Mav30-1.00.04.Release.bbfw",
+    "DeviceTree": "Firmware/all_flash/DeviceTree.d49ap.im4p",
+    "KernelCache": "kernelcache.release.iphone14c",
+    "LLB": "Firmware/all_flash/LLB.d49.RELEASE.im4p",
+    "RestoreDeviceTree": "Firmware/all_flash/DeviceTree.d49ap.im4p",
+    "RestoreKernelCache": "kernelcache.release.iphone14c",
+    "RestoreSEP": "Firmware/all_flash/sep-firmware.d49.RELEASE.im4p",
+    "SEP": "Firmware/all_flash/sep-firmware.d49.RELEASE.im4p",
+    "iBEC": "Firmware/dfu/iBEC.d49.RELEASE.im4p",
+    "iBSS": "Firmware/dfu/iBSS.d49.RELEASE.im4p",
+    "iBoot": "Firmware/all_flash/iBoot.d49.RELEASE.im4p",
+    "iBootData": "Firmware/all_flash/iBootData.d49.RELEASE.im4p"
+  },
+  "critical_digests": {
+    "LLB": "de2f62692dda471101ad436f30c02eda7af3d2abf0d6db4be046966737c20032b454c21849449f6fa4e1804feb247fdf",
+    "SEP": "8c0ce8073b401e69007e502f0f054cc1f70febbc01c503473d880e8db6bdfb62d722c542a6620355e6e43ee5dd0bbe23",
+    "RestoreSEP": "b9b2b40cda12cc3d439aab9a2419bc34c32d4b6322960bb78920fdc906e59802641af2b8795ffa6a9d4dbcf33b885779",
+    "iBEC": "ed48c389eac965c3c93a1bf9955fd3a754a0fc8e564c2f7e80948b4301489307fa652f1b82daa8ce0d408d9bcfe04250",
+    "iBSS": "798a53e3082d1f8641e7db52dba4c82af3d032582a5dfe8f7f71a66b44685a09eae8c70b8001864b2541c52750cfa91e",
+    "iBoot": "1c34613a63be03f878eb805c970c746b7431e74bb6458e27a07b6f74e81f67d72bc44f09a25d95dbcafa6d65d6655197"
+  },
+  "identity_differences": {
+    "0": {
+      "variant": "Customer Erase Install (IPSW)",
+      "restore_behavior": "Erase",
+      "RestoreRamDisk": "018-27291-345.dmg",
+      "RestoreTrustCache": "Firmware/018-27291-345.dmg.trustcache"
+    },
+    "1": {
+      "variant": "Customer Upgrade Install (IPSW)",
+      "restore_behavior": "Update",
+      "RestoreRamDisk": "018-27148-345.dmg",
+      "RestoreTrustCache": "Firmware/018-27148-345.dmg.trustcache"
+    },
+    "note": "All other component paths are identical across the two identities."
+  },
+  "manifest": {
+    "version": "15.4",
+    "build": "19E241",
+    "product_supported": true,
+    "identity_count": 2,
+    "matched_board": "D49AP",
+    "matched_cpid": "0x8110",
+    "matched_bdid": "0x10"
+  },
+  "workflow": {
+    "run_id": 32402473440,
+    "conclusion": "success",
+    "artifact_id": 9418990839,
+    "artifact_name": "iPhone14-6-19E241-manifest-analysis",
+    "artifact_digest": "sha256:941ca6f70e6e376eab34eb2a5df0143ea1d8f43a681ce054f4aa7444c4c12a88"
+  }
+}
