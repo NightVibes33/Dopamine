@@ -9,11 +9,18 @@ The analysis is static and non-operational. It does not emit function offsets, b
 ## Validation
 
 - Workflow: `A15 CAND-001 Semantic Shape`
-- Run: `32416709654`
+- Run: `32416830061`
 - Result: `success`
-- Head: `c1ad098f57840e4781def29aa44c49e0019b5d98`
-- Artifact: `9424163895`
-- Artifact digest: `sha256:7757f3ea89d883b11700d75b35e397b4072d7318e588574f7a3b0ffe4dd9a147`
+- Head: `dbeff7c732a66eabf27e72a5678018db3d94812d`
+- Artifact: `9424204297`
+- Artifact digest: `sha256:b57c038bce43ff43cc337457796d2014e546d4cf40d7e262cb340f6996a32cb3`
+
+Full A15 analysis on the same head:
+
+- Run: `32416830076`
+- Result: `success`
+- Artifact: `9424218244`
+- Artifact digest: `sha256:3713448c5e1a35e900301943c0892b26556e693e62fefceea522edafb21a5df7`
 
 ## Semantic-shape result
 
