@@ -61,13 +61,19 @@ def motif_metrics(insns):
     ms = [mnemonic(x) for x in insns]
     n = len(ms)
 
-    flag_compare_guards = 0
-    zero_test_guards = sum(1 for m in ms if m in ZERO_GUARDS)
-    bit_test_guards = sum(1 for m in ms if m in BIT_GUARDS)
-    arithmetic_before_guard = 0
-    load_before_guard = 0
-    store_after_guard = 0
-    guard_indices = []
+    flag_compare_guard_pairs = 0
+    guard_records = {}
+
+    def mark_guard(idx: int, kind: str, anchor: int):
+        rec = guard_records.setdefault(idx, {
+            "kind": kind,
+            "arithmetic_before": False,
+            "load_before": False,
+            "store_after": False,
+        })
+        rec["arithmetic_before"] |= any(is_arithmetic(ms[k]) for k in range(max(0, anchor - 2), anchor))
+        rec["load_before"] |= any(is_load(ms[k]) for k in range(max(0, anchor - 2), anchor))
+        rec["store_after"] |= any(is_store(ms[k]) for k in range(idx + 1, min(n, idx + 4)))
 
     for i, m in enumerate(ms):
         if m in COMPARES:
@@ -76,26 +82,15 @@ def motif_metrics(insns):
                 if j >= n:
                     break
                 if is_flag_branch(ms[j]):
-                    flag_compare_guards += 1
-                    guard_indices.append(j)
-                    if any(is_arithmetic(ms[k]) for k in range(max(0, i - 2), i)):
-                        arithmetic_before_guard += 1
-                    if any(is_load(ms[k]) for k in range(max(0, i - 2), i)):
-                        load_before_guard += 1
-                    if any(is_store(ms[k]) for k in range(j + 1, min(n, j + 4))):
-                        store_after_guard += 1
+                    flag_compare_guard_pairs += 1
+                    mark_guard(j, "flag", i)
                     break
-        elif m in ZERO_GUARDS or m in BIT_GUARDS:
-            guard_indices.append(i)
-            if any(is_arithmetic(ms[k]) for k in range(max(0, i - 2), i)):
-                arithmetic_before_guard += 1
-            if any(is_load(ms[k]) for k in range(max(0, i - 2), i)):
-                load_before_guard += 1
-            if any(is_store(ms[k]) for k in range(i + 1, min(n, i + 4))):
-                store_after_guard += 1
+        elif m in ZERO_GUARDS:
+            mark_guard(i, "zero", i)
+        elif m in BIT_GUARDS:
+            mark_guard(i, "bit", i)
 
-    # Coarse clusters of guard sites separated by <=3 instructions.
-    guard_indices = sorted(set(guard_indices))
+    guard_indices = sorted(guard_records)
     clusters = []
     cur = []
     for idx in guard_indices:
@@ -110,9 +105,16 @@ def motif_metrics(insns):
     cluster_sizes = [len(c) for c in clusters]
     nested_guard_pressure = sum(max(0, size - 1) for size in cluster_sizes)
 
+    unique_flag_guard_sites = sum(1 for x in guard_records.values() if x["kind"] == "flag")
+    zero_test_guard_sites = sum(1 for x in guard_records.values() if x["kind"] == "zero")
+    bit_test_guard_sites = sum(1 for x in guard_records.values() if x["kind"] == "bit")
+    total_guard_sites = len(guard_records)
+    arithmetic_before_guard = sum(1 for x in guard_records.values() if x["arithmetic_before"])
+    load_before_guard = sum(1 for x in guard_records.values() if x["load_before"])
+    store_after_guard = sum(1 for x in guard_records.values() if x["store_after"])
+
     cfg = STRUCT.cfg_metrics(insns)
     counts = STRUCT.category_counts(insns)
-    total_guard_sites = flag_compare_guards + zero_test_guards + bit_test_guards
 
     if total_guard_sites >= 8 or cfg["compare_guard_pairs"] >= 8:
         semantic_shape = "dense_multi_guard_state_validation"
@@ -131,10 +133,11 @@ def motif_metrics(insns):
     return {
         "instructions": n,
         "guard_motifs": {
-            "flag_compare_guards": flag_compare_guards,
-            "zero_test_guards": zero_test_guards,
-            "bit_test_guards": bit_test_guards,
-            "total_guard_sites": total_guard_sites,
+            "flag_compare_guard_pairs": flag_compare_guard_pairs,
+            "unique_flag_guard_sites": unique_flag_guard_sites,
+            "zero_test_guard_sites": zero_test_guard_sites,
+            "bit_test_guard_sites": bit_test_guard_sites,
+            "total_unique_guard_sites": total_guard_sites,
             "guard_clusters": len(clusters),
             "max_guard_cluster_size": max(cluster_sizes, default=0),
             "nested_guard_pressure": nested_guard_pressure,
@@ -185,20 +188,21 @@ def build_report(a15_a0: bytes, a15_b0: bytes, triage: dict, a14: bytes, a16: by
         "A16": motif_metrics(decode_func(a16, a16_func)),
     }
 
-    a0_guards = shapes["A15_A0"]["guard_motifs"]["total_guard_sites"]
-    b0_guards = shapes["A15_B0_B1"]["guard_motifs"]["total_guard_sites"]
-    a14_guards = shapes["A14"]["guard_motifs"]["total_guard_sites"]
-    a16_guards = shapes["A16"]["guard_motifs"]["total_guard_sites"]
+    a0_guards = shapes["A15_A0"]["guard_motifs"]["total_unique_guard_sites"]
+    b0_guards = shapes["A15_B0_B1"]["guard_motifs"]["total_unique_guard_sites"]
+    a14_guards = shapes["A14"]["guard_motifs"]["total_unique_guard_sites"]
+    a16_guards = shapes["A16"]["guard_motifs"]["total_unique_guard_sites"]
 
     interpretation = {
-        "b0_b1_guard_expansion_vs_a0": b0_guards - a0_guards,
-        "b0_b1_guard_expansion_vs_neighbor_max": b0_guards - max(a14_guards, a16_guards),
+        "b0_b1_unique_guard_expansion_vs_a0": b0_guards - a0_guards,
+        "b0_b1_unique_guard_expansion_vs_neighbor_max": b0_guards - max(a14_guards, a16_guards),
         "b0_b1_semantic_shape": shapes["A15_B0_B1"]["semantic_shape_hypothesis"],
         "a0_semantic_shape": shapes["A15_A0"]["semantic_shape_hypothesis"],
         "b0_b1_unique_dense_guard_shape": (
             shapes["A15_B0_B1"]["semantic_shape_hypothesis"] == "dense_multi_guard_state_validation"
             and all(shapes[x]["semantic_shape_hypothesis"] != "dense_multi_guard_state_validation" for x in ("A14", "A15_A0", "A16"))
         ),
+        "measurement_note": "compare→guard pair counts may exceed distinct guard branch sites when multiple compares feed one branch",
         "vulnerability_status": "NOT_ESTABLISHED",
         "security_fix_status": "NOT_ESTABLISHED",
     }
