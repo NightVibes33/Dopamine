@@ -1,0 +1,17 @@
+{
+  "reference": {
+    "product_type": "iPhone12,8",
+    "soc": "A13",
+    "role": "reference"
+  },
+  "target": {
+    "product_type": "iPhone14,6",
+    "soc": "A15",
+    "target_build": "19E241",
+    "target_version": "15.4",
+    "role": "research-target"
+  },
+  "mode": "offline-analysis",
+  "device_communication": false,
+  "restore_authorization_bypass": false
+}
