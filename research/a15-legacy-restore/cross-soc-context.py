@@ -2,7 +2,7 @@
 """Provide anonymized cross-SoC architecture context for T8110 ROM deltas.
 
 The tool compares each ranked A15 changed-function candidate against heuristic
-function fingerprints recovered from neighboring A14/t8103 and A16/t8120
+function fingerprints recovered from neighboring A14/T8101 and A16/T8120
 SecureROM images. It emits only candidate IDs and similarity summaries; context
 function addresses are intentionally omitted. This is static ancestry/context
 analysis, not vulnerability or exploit analysis.
@@ -89,14 +89,14 @@ def build_report(a15_a0,a15_b0,triage,a14,a16):
             "source_kind":row.get("kind","unknown"),
             "representative_revision":representative,
             "representative_insns":len(mn),
-            "A14_t8103":m14,
+            "A14_t8101":m14,
             "A16_t8120":m16,
             "context_pattern":overall_context(m14,m16),
             "vulnerability_status":"NOT_ESTABLISHED",
         })
     return {
         "candidate_count":len(rows),
-        "context_function_candidates":{"A14_t8103":len(a14_funcs),"A16_t8120":len(a16_funcs)},
+        "context_function_candidates":{"A14_t8101":len(a14_funcs),"A16_t8120":len(a16_funcs)},
         "ranked_candidates":rows,
         "method":"mnemonic-sequence similarity against de-duplicated heuristic neighboring-SoC function candidates",
         "limitations":[
