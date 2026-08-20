@@ -1,0 +1,18 @@
+{
+  "name": "example-static-candidate",
+  "surface": "USB/DFU state handling",
+  "description": "Template record for a static candidate discovered by ROM differential analysis.",
+  "evidence": {
+    "retail_relevance": 0,
+    "pre_iboot_reachability": 0,
+    "external_input": 0,
+    "invariant_strength": 0,
+    "cross_revision_signal": 0,
+    "reproducibility": 0,
+    "independent_evidence": 0
+  },
+  "notes": [
+    "Use levels 0..3 only.",
+    "This schema records evidence quality; it is not an exploit recipe."
+  ]
+}
