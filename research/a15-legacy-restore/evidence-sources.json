@@ -1,0 +1,25 @@
+{
+  "target": {
+    "device": "iPhone14,6",
+    "version": "15.4",
+    "build": "19E241",
+    "sha256": "b75a78bb659277461189946838573eae5eee1a540737c4a681058603cdf3523b"
+  },
+  "sources": [
+    {
+      "name": "IPSW Downloads",
+      "url": "https://ipsw.me/download/iPhone14%2C6/19E241/",
+      "claims": ["product/build mapping", "unsigned status", "target IPSW checksum"]
+    },
+    {
+      "name": "The Apple Wiki",
+      "url": "https://theapplewiki.com/wiki/Keys:SkyEcho_19E241_(iPhone14,6)",
+      "claims": ["D49/A15 component filenames", "baseband metadata"]
+    },
+    {
+      "name": "surrealra1n",
+      "url": "https://github.com/pwnerblu/surrealra1n",
+      "claims": ["public A12/A13 support boundary", "reference restore architecture"]
+    }
+  ]
+}
