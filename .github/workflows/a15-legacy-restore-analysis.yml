@@ -1,0 +1,71 @@
+name: A15 Legacy Restore Analysis
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - research/a15-legacy-restore-lab
+    paths:
+      - 'research/a15-legacy-restore/**'
+      - '.github/workflows/a15-legacy-restore-analysis.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run offline unit tests
+        run: python3 -m unittest discover -s research/a15-legacy-restore/tests -v
+
+      - name: Read verified target profile
+        id: target
+        shell: bash
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          p=json.load(open('research/a15-legacy-restore/target-profile.json'))
+          print('url='+p['apple_cdn_url'])
+          print('build='+p['target_build'])
+          PY
+
+      - name: Extract BuildManifest from Apple CDN by HTTP range
+        run: |
+          mkdir -p research/a15-legacy-restore/data/19E241
+          python3 research/a15-legacy-restore/remote_manifest.py \
+            '${{ steps.target.outputs.url }}' \
+            --output research/a15-legacy-restore/data/19E241/BuildManifest.plist
+
+      - name: Validate target hardware identity
+        run: |
+          python3 research/a15-legacy-restore/validate_manifest.py \
+            research/a15-legacy-restore/data/19E241/BuildManifest.plist \
+            | tee research/a15-legacy-restore/data/19E241/validation.txt
+
+      - name: Generate structured report
+        run: |
+          python3 research/a15-legacy-restore/report.py \
+            research/a15-legacy-restore/data/19E241/BuildManifest.plist \
+            --json research/a15-legacy-restore/data/19E241/report.json \
+            --text research/a15-legacy-restore/data/19E241/report.txt
+
+      - name: Generate component matrix
+        run: |
+          python3 research/a15-legacy-restore/component-matrix.py \
+            research/a15-legacy-restore/data/19E241/BuildManifest.plist \
+            --output research/a15-legacy-restore/data/19E241/component-matrix.json
+
+      - name: Upload analysis artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: iPhone14-6-19E241-manifest-analysis
+          path: |
+            research/a15-legacy-restore/data/19E241/BuildManifest.plist
+            research/a15-legacy-restore/data/19E241/validation.txt
+            research/a15-legacy-restore/data/19E241/report.json
+            research/a15-legacy-restore/data/19E241/report.txt
+            research/a15-legacy-restore/data/19E241/component-matrix.json
