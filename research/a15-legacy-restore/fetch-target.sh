@@ -1,22 +1,26 @@
 #!/bin/sh
 set -eu
 
-# Fetch the target IPSW from the user-supplied IPSW.me download endpoint,
-# verify its SHA-256, extract BuildManifest.plist, and generate the offline
-# compatibility report. This does not communicate with or modify a device.
+# Download the target IPSW using a direct URL supplied by the caller, verify
+# the published SHA-256, extract BuildManifest.plist, and generate an offline
+# report. No device communication or restore operation is performed.
 #
-# Usage:
-#   ./research/a15-legacy-restore/fetch-target.sh
+# IPSW.me target page:
+# https://ipsw.me/download/iPhone14%2C6/19E241/
 
-URL="https://updates.cdn-apple.com/2022WinterSeed/fullrestores/012-78901/00000000000000000000000000000000/iPhone14,6_15.4_19E241_Restore.ipsw"
-EXPECTED_SHA256="b75a78bb0f0c7a7e9d4f3f3f3b1c5f5f8f0d6d3d7b6f7c6d8f8d5a7e6c3b3523b"
+EXPECTED_SHA256="b75a78bb659277461189946838573eae5eee1a540737c4a681058603cdf3523b"
 OUT="research/a15-legacy-restore/data/19E241"
 IPSW="$OUT/iPhone14,6_15.4_19E241_Restore.ipsw"
 
-mkdir -p "$OUT"
+if [ "${IPSW_URL:-}" = "" ]; then
+    echo "Set IPSW_URL to the direct Apple CDN URL before running." >&2
+    echo "The IPSW.me page redirects to Apple's download infrastructure." >&2
+    exit 2
+fi
 
+mkdir -p "$OUT"
 echo "Downloading target IPSW..."
-curl -L --fail --retry 3 -o "$IPSW" "$URL"
+curl -L --fail --retry 3 -o "$IPSW" "$IPSW_URL"
 
 echo "Verifying SHA-256..."
 ACTUAL=$(shasum -a 256 "$IPSW" | awk '{print $1}')
