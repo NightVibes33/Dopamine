@@ -71,6 +71,37 @@ jobs:
             research/a15-legacy-restore/data/19E241/BuildManifest.plist \
             --output research/a15-legacy-restore/data/19E241/component-matrix.json
 
+      - name: Fetch pinned public T8110 SecureROM revisions
+        run: |
+          mkdir -p research/a15-legacy-restore/data/t8110
+          python3 - <<'PY'
+          import json, pathlib, subprocess, urllib.parse, urllib.request
+          cfg=json.load(open('research/a15-legacy-restore/rom-sources.json'))
+          root=pathlib.Path('research/a15-legacy-restore/data/t8110')
+          base=f"https://raw.githubusercontent.com/{cfg['source_repository']}/{cfg['source_commit']}/"
+          outputs=[]
+          for entry in cfg['roms']:
+              url=base+urllib.parse.quote(entry['path'], safe='/')
+              out=root/(entry['label']+'.bin')
+              with urllib.request.urlopen(url, timeout=60) as r:
+                  out.write_bytes(r.read())
+              blob=subprocess.check_output(['git','hash-object',str(out)], text=True).strip()
+              if blob != entry['git_blob_sha']:
+                  raise SystemExit(f"Git blob mismatch for {entry['label']}: {blob} != {entry['git_blob_sha']}")
+              print(f"verified {entry['label']} {blob} {out.stat().st_size} bytes")
+              outputs.append(str(out))
+          PY
+
+      - name: Generate A15 A0-to-B0/B1 SecureROM structural diff
+        run: |
+          python3 research/a15-legacy-restore/romdiff.py \
+            research/a15-legacy-restore/data/t8110/A15-A0.bin \
+            research/a15-legacy-restore/data/t8110/A15-B0-B1.bin \
+            --output research/a15-legacy-restore/data/t8110/romdiff-a0-b0b1.json
+
+      - name: Remove ROM binaries before artifact upload
+        run: rm -f research/a15-legacy-restore/data/t8110/*.bin
+
       - name: Upload analysis artifact
         uses: actions/upload-artifact@v4
         with:
@@ -81,3 +112,4 @@ jobs:
             research/a15-legacy-restore/data/19E241/report.json
             research/a15-legacy-restore/data/19E241/report.txt
             research/a15-legacy-restore/data/19E241/component-matrix.json
+            research/a15-legacy-restore/data/t8110/romdiff-a0-b0b1.json
