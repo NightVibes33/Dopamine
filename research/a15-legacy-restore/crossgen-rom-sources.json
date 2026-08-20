@@ -1,0 +1,15 @@
+{
+  "source_repository": "hekapooios/hekapooios.github.io",
+  "source_commit": "33f089e189d8c200a31856bbc2246b6455325c77",
+  "roms": [
+    {
+      "label": "A14-B1",
+      "soc": "t8101",
+      "revision": "B1",
+      "iboot": "5281.0.0.100.45",
+      "path": "resources/APROM/SecureROM for t8101si, iBoot-5281.0.0.100.45",
+      "git_blob_sha": "2cf533f883359eaca0a134b14e000a406f80dd79"
+    }
+  ],
+  "note": "Cross-generation production ROM source pinned for static DFU lineage comparison only."
+}
