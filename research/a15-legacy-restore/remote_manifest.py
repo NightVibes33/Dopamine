@@ -21,13 +21,16 @@ LFH = b"PK\x03\x04"
 
 def fetch_range(url: str, start: int | None = None, end: int | None = None, suffix: int | None = None):
     headers = {"User-Agent": "Dopamine-A15-Legacy-Restore-Research/1.0"}
+    range_requested = suffix is not None or start is not None
     if suffix is not None:
         headers["Range"] = f"bytes=-{suffix}"
     elif start is not None:
         headers["Range"] = f"bytes={start}-{'' if end is None else end}"
     req = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(req, timeout=60) as response:
-        data = response.read()
+        status = response.status
+        if range_requested and status != 206:
+            raise RuntimeError(f"server ignored HTTP Range request (status {status}); refusing full IPSW download")
         cr = response.headers.get("Content-Range")
         total = None
         if cr and "/" in cr:
@@ -35,7 +38,8 @@ def fetch_range(url: str, start: int | None = None, end: int | None = None, suff
                 total = int(cr.rsplit("/", 1)[1])
             except ValueError:
                 pass
-        return data, total, response.status
+        data = response.read()
+        return data, total, status
 
 
 def u64_extra(extra: bytes, need_uncomp: bool, need_comp: bool, need_offset: bool):
