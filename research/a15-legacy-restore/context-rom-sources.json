@@ -1,0 +1,23 @@
+{
+  "source_repository": "hekapooios/hekapooios.github.io",
+  "source_commit": "33f089e189d8c200a31856bbc2246b6455325c77",
+  "roms": [
+    {
+      "label": "A14-t8103",
+      "soc": "t8103",
+      "generation": "A14",
+      "iboot": "5540.0.0.200.13",
+      "path": "resources/APROM/SecureROM for t8103si, iBoot-5540.0.0.200.13",
+      "git_blob_sha": "b3337b10e635abc4074735e27a97a35b4cc00462"
+    },
+    {
+      "label": "A16-t8120",
+      "soc": "t8120",
+      "generation": "A16",
+      "iboot": "7195.0.0.200.29",
+      "path": "resources/APROM/SecureROM for t8120si, iBoot-7195.0.0.200.29",
+      "git_blob_sha": "2e38df15c34e0455601d739626cab70d8bf91181"
+    }
+  ],
+  "note": "Neighboring-SoC ROMs are used only for anonymized static architecture-context matching. Cross-SoC similarity does not establish vulnerability or exploitability."
+}
