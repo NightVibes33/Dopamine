@@ -79,7 +79,6 @@ jobs:
           cfg=json.load(open('research/a15-legacy-restore/rom-sources.json'))
           root=pathlib.Path('research/a15-legacy-restore/data/t8110')
           base=f"https://raw.githubusercontent.com/{cfg['source_repository']}/{cfg['source_commit']}/"
-          outputs=[]
           for entry in cfg['roms']:
               url=base+urllib.parse.quote(entry['path'], safe='/')
               out=root/(entry['label']+'.bin')
@@ -89,7 +88,6 @@ jobs:
               if blob != entry['git_blob_sha']:
                   raise SystemExit(f"Git blob mismatch for {entry['label']}: {blob} != {entry['git_blob_sha']}")
               print(f"verified {entry['label']} {blob} {out.stat().st_size} bytes")
-              outputs.append(str(out))
           PY
 
       - name: Generate A15 A0-to-B0/B1 SecureROM structural diff
@@ -98,6 +96,16 @@ jobs:
             research/a15-legacy-restore/data/t8110/A15-A0.bin \
             research/a15-legacy-restore/data/t8110/A15-B0-B1.bin \
             --output research/a15-legacy-restore/data/t8110/romdiff-a0-b0b1.json
+
+      - name: Install ARM64 static-analysis dependency
+        run: python3 -m pip install --disable-pip-version-check 'capstone>=5,<6'
+
+      - name: Generate ARM64 instruction-class diff
+        run: |
+          python3 research/a15-legacy-restore/arm64-static-diff.py \
+            research/a15-legacy-restore/data/t8110/A15-A0.bin \
+            research/a15-legacy-restore/data/t8110/A15-B0-B1.bin \
+            --output research/a15-legacy-restore/data/t8110/arm64-static-diff-a0-b0b1.json
 
       - name: Remove ROM binaries before artifact upload
         run: rm -f research/a15-legacy-restore/data/t8110/*.bin
@@ -113,3 +121,4 @@ jobs:
             research/a15-legacy-restore/data/19E241/report.txt
             research/a15-legacy-restore/data/19E241/component-matrix.json
             research/a15-legacy-restore/data/t8110/romdiff-a0-b0b1.json
+            research/a15-legacy-restore/data/t8110/arm64-static-diff-a0-b0b1.json
