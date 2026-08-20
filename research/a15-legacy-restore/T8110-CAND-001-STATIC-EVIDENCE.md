@@ -8,16 +8,16 @@ It does **not** establish a vulnerability, exploitability, an early-boot primiti
 
 ## Validation baseline
 
-Latest validated workflow:
+Latest validated workflows on head `dad91c56d64bb6791205d5b45724dc42ed4490c1`:
 
-- Workflow: `A15 Legacy Restore Analysis`
-- Run: `32406989966`
-- Result: `success`
-- Head: `b0dc997689bfbc387d1f8ab5e6e7e247a64c51eb`
-- Artifact: `9420652029`
-- Artifact digest: `sha256:55f7e17d09b0ef59bf49350c69aad6b73040775f1bea3db3bff1e0e3759278af`
+- `A15 Legacy Restore Analysis` run `32410131468` — `success`
+  - Artifact `9421809404`
+  - Digest `sha256:213b4fa2271a510d8e92be40adf8c94e41fa8898ed9b62fc76fc6c675eabf953`
+- `A15 CAND-001 Static Structure` run `32410131503` — `success`
+  - Artifact `9421794169`
+  - Digest `sha256:506aacf8369bc3b73cac5ef2c314f2ecf9c639aee9bd45cfe54168353e30a0d6`
 
-The workflow verifies pinned ROM sources before analysis and removes ROM binaries before artifact upload.
+The workflows verify pinned ROM sources before analysis and remove ROM binaries before artifact upload.
 
 ## Candidate classification
 
@@ -51,6 +51,35 @@ The heuristic function analysis pairs the A15 A0 and B0/B1 sides as the same hig
 | Stores | 3 | 7 | +4 |
 
 The B0/B1 side is therefore substantially larger and more branch/compare/arithmetic-heavy while making fewer direct calls.
+
+## Aggregate CFG/data-flow characterization
+
+The dedicated static-structure workflow reconstructs `CAND-001` from the pinned ROMs and emits only aggregate structural metrics.
+
+| CFG metric | A15 A0 | A15 B0/B1 | Delta |
+|---|---:|---:|---:|
+| Estimated basic blocks | 7 | 17 | +10 |
+| Internal direct branch targets | 2 | 4 | +2 |
+| Estimated back edges | 0 | 2 | +2 |
+| Compare→guard pairs | 3 | 13 | +10 |
+| Max compare→branch distance | 1 | 2 | +1 |
+
+Normalized densities:
+
+| Density | A15 A0 | A15 B0/B1 |
+|---|---:|---:|
+| Compare | 0.1111 | 0.1685 |
+| Conditional branch | 0.1481 | 0.1348 |
+| Guard logic | 0.2593 | 0.3034 |
+| Arithmetic | 0.0370 | 0.1910 |
+| Call | 0.1481 | 0.0112 |
+| Memory access | 0.2222 | 0.1573 |
+
+Both revisions independently classify as `guarded_state_or_validation_logic`.
+
+The important signal is therefore **not** a broad role change. The B0/B1 implementation preserves the same broad validation/state role while becoming much more internally structured: ten additional estimated basic blocks, ten additional compare→guard pairs, two estimated backward edges, sharply higher arithmetic density, and substantially lower direct-call density.
+
+This is consistent with a compact DFU-associated validation/state routine being rewritten into a more self-contained state/validation implementation. It does not establish why the rewrite occurred or whether it fixed a security flaw.
 
 ## DFU association
 
@@ -109,7 +138,7 @@ Therefore, simple helper inlining does **not** currently explain the rewrite.
 
 The evidence supports the following research statement:
 
-> `CAND-001` is a high-priority A15-stepping-specific, DFU-associated static review candidate whose B0/B1 implementation is materially more complex than the A0 form and is not explained by the current simple inlining heuristic.
+> `CAND-001` is a high-priority A15-stepping-specific, DFU-associated static review candidate whose B0/B1 implementation is materially more complex than the A0 form, preserves a broad guarded state/validation role, and is not explained by the current simple inlining heuristic.
 
 ## What the evidence does not support
 
@@ -131,4 +160,4 @@ The current data does **not** establish:
 
 **Vulnerability status:** `NOT_ESTABLISHED`
 
-The appropriate next research milestone is additional static validation of the candidate's broad control-flow/data-flow role and revision history without constructing a crafted trigger or exploit chain.
+The next defensible static milestone is cross-generation structural comparison of this guarded state/validation shape against the corresponding A14 and A16 DFU-associated homologs, while continuing to avoid crafted trigger or exploit construction.
