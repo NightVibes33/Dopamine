@@ -1,0 +1,22 @@
+{
+  "source_repository": "hekapooios/hekapooios.github.io",
+  "source_commit": "33f089e189d8c200a31856bbc2246b6455325c77",
+  "soc": "t8110",
+  "roms": [
+    {
+      "label": "A15-A0",
+      "revision": "A0",
+      "iboot": "6338.0.0.200.15",
+      "path": "resources/APROM/SecureROM for t8110si, iBoot-6338.0.0.200.15",
+      "git_blob_sha": "619284bee8efe75ea265a2245c799e88ec0bab31"
+    },
+    {
+      "label": "A15-B0-B1",
+      "revision": "B0/B1",
+      "iboot": "6338.0.0.200.19",
+      "path": "resources/APROM/SecureROM for t8110si, iBoot-6338.0.0.200.19",
+      "git_blob_sha": "abe4aef920e7354e4ff9333713f2d7a6753670e5"
+    }
+  ],
+  "note": "Public binary sources used only for offline structural differential analysis."
+}
