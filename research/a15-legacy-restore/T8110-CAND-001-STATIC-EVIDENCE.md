@@ -8,16 +8,12 @@ It does **not** establish a vulnerability, exploitability, an early-boot primiti
 
 ## Validation baseline
 
-Latest validated workflows on head `dad91c56d64bb6791205d5b45724dc42ed4490c1`:
+Latest validated workflows on head `f4248fd09fdb17034ad685b47cfad04851cbf21f`:
 
-- `A15 Legacy Restore Analysis` run `32410131468` — `success`
-  - Artifact `9421809404`
-  - Digest `sha256:213b4fa2271a510d8e92be40adf8c94e41fa8898ed9b62fc76fc6c675eabf953`
-- `A15 CAND-001 Static Structure` run `32410131503` — `success`
-  - Artifact `9421794169`
-  - Digest `sha256:506aacf8369bc3b73cac5ef2c314f2ecf9c639aee9bd45cfe54168353e30a0d6`
-
-The workflows verify pinned ROM sources before analysis and remove ROM binaries before artifact upload.
+- `A15 CAND-001 Static Structure` run `32410456498` — `success`
+  - Artifact `9421912498`
+  - Digest `sha256:aa19ad085016f76da7a791699e8c1c0b848cbdba7c123eed8b81a5821f9a7049`
+- `A15 Legacy Restore Analysis` last fully verified on preceding evidence head and continuously revalidated on branch pushes; ROM binaries are removed before upload.
 
 ## Candidate classification
 
