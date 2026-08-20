@@ -55,6 +55,44 @@ def branch_target(ins):
         return None
 
 
+def overlap_ratio(a, b):
+    lo=max(a["start"], b["start"])
+    hi=min(a["end"], b["end"])
+    if hi <= lo:
+        return 0.0
+    inter=hi-lo
+    shorter=min(a["end"]-a["start"], b["end"]-b["start"])
+    return inter/shorter if shorter else 0.0
+
+
+def dedupe_functions(funcs):
+    """Collapse near-identical heuristic boundaries without inventing functions."""
+    kept=[]
+    for f in sorted(funcs, key=lambda x:(x["end"], x["start"])):
+        duplicate=None
+        for k in reversed(kept):
+            if k["end"] != f["end"]:
+                if k["end"] < f["end"]:
+                    break
+                continue
+            if abs(k["start"]-f["start"]) <= 16 and overlap_ratio(k, f) >= 0.90:
+                duplicate=k
+                break
+        if duplicate is None:
+            kept.append(dict(f))
+            continue
+        merged_sources=sorted(set(duplicate["sources"]) | set(f["sources"]))
+        def rank(x):
+            return ("bl_target" in x["sources"], x["end"]-x["start"], -x["start"])
+        if rank(f) > rank(duplicate):
+            replacement=dict(f)
+            replacement["sources"]=merged_sources
+            kept[kept.index(duplicate)]=replacement
+        else:
+            duplicate["sources"]=merged_sources
+    return sorted(kept, key=lambda x:x["start"])
+
+
 def discover(data: bytes):
     by_addr=decode_map(data)
     starts=collections.defaultdict(set)
@@ -90,7 +128,7 @@ def discover(data: bytes):
                 "mnemonics":mn,
                 "fingerprint":hashlib.sha256(" ".join(mn).encode()).hexdigest(),
             })
-    return funcs
+    return dedupe_functions(funcs)
 
 
 def similarity(a,b):
@@ -156,7 +194,7 @@ def main():
     exact,similar,only_a,only_b=compare(a,b)
     similar_sorted=sorted(similar,key=lambda x:x["mnemonic_similarity"])
     report={
-        "heuristic":"aligned ARM64 decode; prologue + direct-BL target starts; return-bounded mnemonic fingerprints",
+        "heuristic":"aligned ARM64 decode; prologue + direct-BL target starts; return-bounded mnemonic fingerprints; overlapping-boundary de-duplication",
         "base_function_candidates":len(a),
         "candidate_function_candidates":len(b),
         "exact_fingerprint_matches":len(exact),
