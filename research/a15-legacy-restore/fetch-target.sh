@@ -1,37 +1,45 @@
 #!/bin/sh
 set -eu
 
-# Download/verify a target IPSW supplied by the caller, then run the
-# offline BuildManifest analysis. No device communication is performed.
+# Analyze the verified iPhone14,6 / 19E241 target.
 #
-# Usage:
-#   IPSW_URL='https://...' ./research/a15-legacy-restore/fetch-target.sh
-# or:
-#   ./research/a15-legacy-restore/fetch-target.sh /path/to/target.ipsw
+# With a local IPSW path, verify the full IPSW checksum then analyze it.
+# With no argument, extract only BuildManifest.plist from the verified Apple CDN
+# object using HTTP byte ranges, avoiding a 5.6 GiB download.
 
-EXPECTED_SHA256="b75a78bb659277461189946838573eae5eee1a540737c4a681058603cdf3523b"
 OUT="research/a15-legacy-restore/data/19E241"
-IPSW="$OUT/iPhone14,6_15.4_19E241_Restore.ipsw"
-
+PROFILE="research/a15-legacy-restore/target-profile.json"
 mkdir -p "$OUT"
 
-if [ "$#" -ge 1 ] && [ -f "$1" ]; then
-    cp "$1" "$IPSW"
-elif [ -n "${IPSW_URL:-}" ]; then
-    curl -L --fail --retry 3 -o "$IPSW" "$IPSW_URL"
-else
-    echo "Provide a local IPSW path or set IPSW_URL to Apple's download URL." >&2
-    exit 2
+if [ "$#" -ge 1 ]; then
+    IPSW="$1"
+    [ -f "$IPSW" ] || { echo "IPSW not found: $IPSW" >&2; exit 2; }
+    EXPECTED_SHA256=$(python3 -c 'import json; print(json.load(open("research/a15-legacy-restore/target-profile.json"))["ipsw_sha256"])')
+    ACTUAL=$(python3 - "$IPSW" <<'PY'
+import hashlib, sys
+h=hashlib.sha256()
+with open(sys.argv[1], 'rb') as f:
+    for chunk in iter(lambda: f.read(1024*1024), b''):
+        h.update(chunk)
+print(h.hexdigest())
+PY
+)
+    if [ "$ACTUAL" != "$EXPECTED_SHA256" ]; then
+        echo "ERROR: SHA-256 mismatch" >&2
+        echo "Expected: $EXPECTED_SHA256" >&2
+        echo "Actual:   $ACTUAL" >&2
+        exit 1
+    fi
+    echo "Verified target IPSW."
+    exec ./research/a15-legacy-restore/collect-manifest.sh "$IPSW" "$OUT"
 fi
 
-echo "Verifying SHA-256..."
-ACTUAL=$(shasum -a 256 "$IPSW" | awk '{print $1}')
-if [ "$ACTUAL" != "$EXPECTED_SHA256" ]; then
-    echo "ERROR: SHA-256 mismatch" >&2
-    echo "Expected: $EXPECTED_SHA256" >&2
-    echo "Actual:   $ACTUAL" >&2
-    exit 1
-fi
-
-echo "Verified target IPSW."
-./research/a15-legacy-restore/collect-manifest.sh "$IPSW" "$OUT"
+URL=$(python3 -c 'import json; print(json.load(open("research/a15-legacy-restore/target-profile.json"))["apple_cdn_url"])')
+python3 research/a15-legacy-restore/remote_manifest.py \
+  "$URL" --output "$OUT/BuildManifest.plist"
+python3 research/a15-legacy-restore/validate_manifest.py \
+  "$OUT/BuildManifest.plist" | tee "$OUT/validation.txt"
+python3 research/a15-legacy-restore/report.py \
+  "$OUT/BuildManifest.plist" --json "$OUT/report.json" --text "$OUT/report.txt"
+python3 research/a15-legacy-restore/component-matrix.py \
+  "$OUT/BuildManifest.plist" --output "$OUT/component-matrix.json"
