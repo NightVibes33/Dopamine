@@ -1,0 +1,16 @@
+{
+  "product_type": "iPhone14,6",
+  "marketing_name": "iPhone SE (3rd generation)",
+  "soc": "A15",
+  "platform": "t8110",
+  "board_config": "D49AP",
+  "cpid": 33040,
+  "cpid_hex": "0x8110",
+  "bdid": 16,
+  "bdid_hex": "0x10",
+  "target_version": "15.4",
+  "target_build": "19E241",
+  "ipsw_filename": "iPhone14,6_15.4_19E241_Restore.ipsw",
+  "ipsw_sha256": "b75a78bb659277461189946838573eae5eee1a540737c4a681058603cdf3523b",
+  "apple_cdn_url": "https://updates.cdn-apple.com/2022FCSWinter/fullrestores/071-09790/177AE196-6D87-47EC-A21C-4263D106992A/iPhone14%2C6_15.4_19E241_Restore.ipsw"
+}
