@@ -8,12 +8,20 @@ The analysis is static and non-operational. It does not emit function offsets, b
 
 ## Validation
 
+Latest validated head:
+
 - Workflow: `A15 CAND-001 Cross-Generation Structure`
-- Run: `32415360175`
+- Run: `32415499587`
 - Result: `success`
-- Head: `98cf8a58776914c8a2b59916e7fb1f647afdaae2`
-- Artifact: `9423684342`
-- Artifact digest: `sha256:c3836e0499e8de6ae0c83853bed017cbf0d139f515acda7a99ea617e7a77484b`
+- Head: `f3449a7e0527afa1561a6fe6b22f24fb1ff7459a`
+- Artifact: `9423732936`
+- Artifact digest: `sha256:3a53271e4b7efac030acbfa6819adfc866c1f3f35802141ade5eb79d59b537e9`
+
+The full `A15 Legacy Restore Analysis` workflow is also green on this exact head:
+
+- Run: `32415499592`
+- Artifact: `9423745399`
+- Artifact digest: `sha256:bb98af5b6230a69e4a3dbcb2a04a4ccc53d87fd61c53282049bf2cafb2a700fd`
 
 Pinned neighboring context:
 
@@ -61,14 +69,7 @@ The B0/B1 form therefore contains a large increase in arithmetic, comparison, me
 
 ## Structural-distance result
 
-The analyzer uses a deliberately coarse address-free CFG distance across:
-
-- estimated basic blocks;
-- estimated back edges;
-- compare→guard pairs;
-- internal direct branch targets.
-
-Results:
+The analyzer uses a deliberately coarse address-free CFG distance across estimated basic blocks, estimated back edges, compare→guard pairs, and internal direct branch targets.
 
 | Comparison | Aggregate CFG distance |
 |---|---:|
@@ -91,16 +92,7 @@ This strengthens the conclusion that the B0/B1 rewrite is **T8110 stepping-speci
 
 It still does **not** establish why the rewrite occurred.
 
-Specifically, the evidence does not establish:
-
-- attacker-controlled input reaching the additional B0/B1 guards;
-- a vulnerability in A15 A0;
-- that B0/B1 is a security fix;
-- memory corruption;
-- authentication bypass;
-- code execution;
-- a retail A15 early-boot primitive;
-- an unsigned restore or downgrade path.
+Specifically, the evidence does not establish attacker-controlled input reaching the additional B0/B1 guards, a vulnerability in A15 A0, that B0/B1 is a security fix, memory corruption, authentication bypass, code execution, a retail A15 early-boot primitive, or an unsigned restore/downgrade path.
 
 **Vulnerability status:** `NOT_ESTABLISHED`
 
