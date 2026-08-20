@@ -1,0 +1,125 @@
+name: A15 CAND-001 Guard Provenance
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - research/a15-legacy-restore-lab
+    paths:
+      - 'research/a15-legacy-restore/cand001-guard-provenance.py'
+      - 'research/a15-legacy-restore/cand001-semantic-shape.py'
+      - 'research/a15-legacy-restore/cand001-crossgen-structure.py'
+      - 'research/a15-legacy-restore/cand001-static-structure.py'
+      - 'research/a15-legacy-restore/function-fingerprint-diff.py'
+      - 'research/a15-legacy-restore/function-feature-triage.py'
+      - 'research/a15-legacy-restore/rom-sources.json'
+      - 'research/a15-legacy-restore/context-rom-sources.json'
+      - '.github/workflows/a15-cand001-guard-provenance.yml'
+  pull_request:
+    branches:
+      - 2.x
+    paths:
+      - 'research/a15-legacy-restore/**'
+      - '.github/workflows/a15-cand001-guard-provenance.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  classify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pinned analysis dependency
+        run: python3 -m pip install --disable-pip-version-check 'capstone>=5,<6'
+
+      - name: Syntax check
+        run: |
+          python3 -m py_compile \
+            research/a15-legacy-restore/cand001-guard-provenance.py \
+            research/a15-legacy-restore/cand001-semantic-shape.py \
+            research/a15-legacy-restore/cand001-crossgen-structure.py \
+            research/a15-legacy-restore/cand001-static-structure.py \
+            research/a15-legacy-restore/function-fingerprint-diff.py \
+            research/a15-legacy-restore/function-feature-triage.py
+
+      - name: Fetch and verify pinned SecureROM context
+        run: |
+          mkdir -p research/a15-legacy-restore/data/t8110 research/a15-legacy-restore/data/context
+          python3 - <<'PY'
+          import json, pathlib, subprocess, urllib.parse, urllib.request
+          jobs = [
+              ('research/a15-legacy-restore/rom-sources.json', pathlib.Path('research/a15-legacy-restore/data/t8110')),
+              ('research/a15-legacy-restore/context-rom-sources.json', pathlib.Path('research/a15-legacy-restore/data/context')),
+          ]
+          for config_path, root in jobs:
+              cfg=json.load(open(config_path))
+              base=f"https://raw.githubusercontent.com/{cfg['source_repository']}/{cfg['source_commit']}/"
+              for entry in cfg['roms']:
+                  url=base+urllib.parse.quote(entry['path'], safe='/')
+                  out=root/(entry['label']+'.bin')
+                  with urllib.request.urlopen(url, timeout=60) as r:
+                      out.write_bytes(r.read())
+                  blob=subprocess.check_output(['git','hash-object',str(out)], text=True).strip()
+                  if blob != entry['git_blob_sha']:
+                      raise SystemExit(f"Git blob mismatch for {entry['label']}: {blob} != {entry['git_blob_sha']}")
+                  print(f"verified {entry['label']} {blob} {out.stat().st_size} bytes")
+          PY
+
+      - name: Reconstruct changed-function candidate set
+        run: |
+          python3 research/a15-legacy-restore/function-fingerprint-diff.py \
+            research/a15-legacy-restore/data/t8110/A15-A0.bin \
+            research/a15-legacy-restore/data/t8110/A15-B0-B1.bin \
+            --output research/a15-legacy-restore/data/t8110/function-fingerprint-a0-b0b1.json
+          python3 research/a15-legacy-restore/function-feature-triage.py \
+            research/a15-legacy-restore/data/t8110/A15-A0.bin \
+            research/a15-legacy-restore/data/t8110/A15-B0-B1.bin \
+            research/a15-legacy-restore/data/t8110/function-fingerprint-a0-b0b1.json \
+            --output research/a15-legacy-restore/data/t8110/function-feature-triage-a0-b0b1.json
+
+      - name: Classify redacted guard provenance
+        run: |
+          python3 research/a15-legacy-restore/cand001-guard-provenance.py \
+            research/a15-legacy-restore/data/t8110/A15-A0.bin \
+            research/a15-legacy-restore/data/t8110/A15-B0-B1.bin \
+            research/a15-legacy-restore/data/t8110/function-feature-triage-a0-b0b1.json \
+            research/a15-legacy-restore/data/context/A14-t8101.bin \
+            research/a15-legacy-restore/data/context/A16-t8120.bin \
+            --candidate CAND-001 \
+            --output research/a15-legacy-restore/data/t8110/cand001-guard-provenance.json
+
+      - name: Verify report is redacted and non-operational
+        run: |
+          python3 - <<'PY'
+          import json
+          p='research/a15-legacy-restore/data/t8110/cand001-guard-provenance.json'
+          obj=json.load(open(p))
+          forbidden={'start','end','address','target','a_start','b_start','op_str','operands','constant','request','request_value','usb_request'}
+          def walk(x):
+              if isinstance(x, dict):
+                  for k,v in x.items():
+                      if k in forbidden:
+                          raise SystemExit(f'forbidden output key: {k}')
+                      walk(v)
+              elif isinstance(x, list):
+                  for v in x: walk(v)
+          walk(obj)
+          assert obj['interpretation']['vulnerability_status']=='NOT_ESTABLISHED'
+          assert obj['interpretation']['security_fix_status']=='NOT_ESTABLISHED'
+          assert obj['interpretation']['attacker_reachability']=='NOT_EVALUATED'
+          assert obj['interpretation']['validated_field_identity']=='NOT_EVALUATED'
+          print('redaction check passed')
+          PY
+
+      - name: Remove ROM binaries
+        run: rm -f research/a15-legacy-restore/data/t8110/*.bin research/a15-legacy-restore/data/context/*.bin
+
+      - name: Upload guard-provenance report
+        uses: actions/upload-artifact@v4
+        with:
+          name: a15-cand001-guard-provenance
+          path: research/a15-legacy-restore/data/t8110/cand001-guard-provenance.json
+          if-no-files-found: error
