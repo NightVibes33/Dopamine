@@ -25,6 +25,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Syntax-check research helpers
+        run: |
+          python3 -m compileall -q research/a15-legacy-restore
+          sh -n research/a15-legacy-restore/collect-manifest.sh
+          sh -n research/a15-legacy-restore/fetch-target.sh
+
       - name: Run offline unit tests
         run: python3 -m unittest discover -s research/a15-legacy-restore/tests -v
 
