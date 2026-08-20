@@ -182,6 +182,14 @@ jobs:
             research/a15-legacy-restore/data/context/A16-t8120.bin \
             --output research/a15-legacy-restore/data/t8110/cross-soc-context-a0-b0b1.json
 
+      - name: Merge independent anonymized candidate evidence
+        run: |
+          python3 research/a15-legacy-restore/candidate-evidence.py \
+            research/a15-legacy-restore/data/t8110/subsystem-triage-a0-b0b1.json \
+            research/a15-legacy-restore/data/t8110/cross-soc-context-a0-b0b1.json \
+            research/a15-legacy-restore/data/t8110/string-ref-hotspots-a0-b0b1.json \
+            --output research/a15-legacy-restore/data/t8110/candidate-evidence-a0-b0b1.json
+
       - name: Remove ROM binaries before artifact upload
         run: rm -f research/a15-legacy-restore/data/t8110/*.bin research/a15-legacy-restore/data/context/*.bin
 
@@ -205,3 +213,4 @@ jobs:
             research/a15-legacy-restore/data/t8110/string-ref-hotspots-a0-b0b1.json
             research/a15-legacy-restore/data/t8110/subsystem-triage-a0-b0b1.json
             research/a15-legacy-restore/data/t8110/cross-soc-context-a0-b0b1.json
+            research/a15-legacy-restore/data/t8110/candidate-evidence-a0-b0b1.json
