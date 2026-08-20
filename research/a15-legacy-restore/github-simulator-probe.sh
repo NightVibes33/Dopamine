@@ -27,7 +27,7 @@ xcrun simctl list runtimes -j > "$RUNTIMES_JSON"
 xcrun simctl list devicetypes -j > "$DEVICETYPES_JSON"
 xcrun simctl list devices -j > "$DEVICES_JSON"
 
-readarray -t SELECTED < <(python3 - "$RUNTIMES_JSON" "$DEVICETYPES_JSON" <<'PY'
+SELECTED="$(python3 - "$RUNTIMES_JSON" "$DEVICETYPES_JSON" <<'PY'
 import json, re, sys
 runtimes=json.load(open(sys.argv[1]))['runtimes']
 devtypes=json.load(open(sys.argv[2]))['devicetypes']
@@ -48,17 +48,16 @@ else:
     if not iphones:
         raise SystemExit('no iPhone Simulator device type installed')
     dev=iphones[0]
-print(runtime['identifier'])
-print(runtime.get('name') or runtime.get('version') or runtime['identifier'])
-print(dev['identifier'])
-print(dev['name'])
+print('\t'.join([
+    runtime['identifier'],
+    runtime.get('name') or runtime.get('version') or runtime['identifier'],
+    dev['identifier'],
+    dev['name'],
+]))
 PY
-)
+)"
 
-RUNTIME_ID="${SELECTED[0]}"
-RUNTIME_NAME="${SELECTED[1]}"
-DEVICE_TYPE_ID="${SELECTED[2]}"
-DEVICE_TYPE_NAME="${SELECTED[3]}"
+IFS=$'\t' read -r RUNTIME_ID RUNTIME_NAME DEVICE_TYPE_ID DEVICE_TYPE_NAME <<< "$SELECTED"
 
 UDID="$(xcrun simctl create A15ResearchProbe "$DEVICE_TYPE_ID" "$RUNTIME_ID")"
 cleanup() {
